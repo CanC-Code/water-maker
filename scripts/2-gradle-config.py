@@ -103,21 +103,29 @@ rootProject.name = "WaterMarker"
 include ':app'
 """
 
+    # 4. gradle.properties
+    # Logic Fault Fix: Enabling AndroidX is mandatory for Compose and modern libraries
+    gradle_properties_content = """
+android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+"""
+
     # Dictionary mapping paths to content
     files = {
         "build.gradle": build_gradle_content,
         "app/build.gradle": app_gradle_content,
-        "settings.gradle": settings_gradle_content
+        "settings.gradle": settings_gradle_content,
+        "gradle.properties": gradle_properties_content
     }
 
     # Generate the files
     for path, content in files.items():
-        # Ensure the directory exists (e.g., for app/build.gradle)
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content.strip())
     
-    print("✅ Dependencies updated.")
+    print("✅ Gradle configuration and properties updated.")
 
 if __name__ == "__main__":
     generate_gradle_files()
