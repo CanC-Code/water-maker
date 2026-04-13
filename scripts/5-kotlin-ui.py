@@ -41,9 +41,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
 fun WaterMarkerUI() {
     val context = LocalContext.current
     var baseBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var overlayLibrary by remember { mutableStateOf(listListOf<Bitmap>()) }
+    var overlayLibrary by remember { mutableStateOf(emptyList<Bitmap>()) }
     var activeOverlay by remember { mutableStateOf<Bitmap?>(null) }
     
     // State in Full-Res Pixels
@@ -124,7 +124,6 @@ fun WaterMarkerUI() {
         Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Black).clipToBounds()
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, rot ->
-                    // Convert screen pan to image-space pan
                     baseBitmap?.let {
                         val viewWidth = size.width
                         val displayScale = viewWidth / it.width.toFloat()
@@ -137,23 +136,23 @@ fun WaterMarkerUI() {
             }
         ) {
             baseBitmap?.let { base ->
-                val displayScale = remember(base) { mutableStateOf(1f) }
-                
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val canvasWidth = size.width
                     val canvasHeight = size.height
                     
-                    // Calculate "Aspect Fit" scale
                     val scaleW = canvasWidth / base.width
                     val scaleH = canvasHeight / base.height
                     val drawScale = minOf(scaleW, scaleH)
-                    displayScale.value = drawScale
 
                     val offsetX = (canvasWidth - base.width * drawScale) / 2
                     val offsetY = (canvasHeight - base.height * drawScale) / 2
 
                     // Draw Base
-                    drawImage(base.asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(offsetX.toInt(), offsetY.toInt()), dstSize = androidx.compose.ui.unit.IntSize((base.width * drawScale).toInt(), (base.height * drawScale).toInt()))
+                    drawImage(
+                        base.asImageBitmap(), 
+                        dstOffset = androidx.compose.ui.unit.IntOffset(offsetX.toInt(), offsetY.toInt()), 
+                        dstSize = androidx.compose.ui.unit.IntSize((base.width * drawScale).toInt(), (base.height * drawScale).toInt())
+                    )
 
                     // Draw Overlay Preview
                     activeOverlay?.let { over ->
@@ -162,7 +161,6 @@ fun WaterMarkerUI() {
                         val targetOh = targetOw * aspect
 
                         drawContext.canvas.save()
-                        // Move to relative center and rotate
                         drawContext.canvas.translate(offsetX + x * drawScale, offsetY + y * drawScale)
                         drawContext.canvas.rotate(rotation)
                         
@@ -175,6 +173,8 @@ fun WaterMarkerUI() {
                         drawContext.canvas.restore()
                     }
                 }
+            } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No Image Loaded", color = Color.DarkGray)
             }
         }
 
@@ -201,8 +201,6 @@ fun WaterMarkerUI() {
         }
     }
 }
-
-fun <T> listListOf(): List<T> = emptyList()
 
 fun decodeUri(context: Context, uri: Uri): Bitmap? {
     return try {
@@ -245,7 +243,7 @@ fun saveFullResolution(context: Context, base: Bitmap, overlay: Bitmap, x: Float
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content.strip())
-    print("📱 UI Engine updated with Coordinate Mapping and Preview logic.")
+    print("✅ Kotlin UI Script Updated. Fixed clipToBounds and State initialization.")
 
 if __name__ == "__main__":
     generate_kotlin_ui()
