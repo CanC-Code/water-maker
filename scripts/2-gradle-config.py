@@ -1,7 +1,7 @@
 import os
 
 def generate_gradle_files():
-    # 1. settings.gradle
+    # 1. settings.gradle - Now the SOLE authority for repositories
     settings_gradle = """
 pluginManagement {
     repositories {
@@ -28,7 +28,7 @@ android.nonTransitiveRClass=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 """
 
-    # 3. Root build.gradle
+    # 3. Root build.gradle - CLEANED (Removed allprojects/repositories)
     root_build_gradle = """
 buildscript {
     repositories {
@@ -41,16 +41,10 @@ buildscript {
     }
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
+// All project-wide repository logic is now handled in settings.gradle
 """
 
     # 4. app/build.gradle
-    # Note: We include externalNativeBuild for our upcoming C++ engine
     app_build_gradle = """
 plugins {
     id 'com.android.application'
@@ -68,8 +62,6 @@ android {
         versionCode 1
         versionName "1.0"
 
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        
         externalNativeBuild {
             cmake {
                 cppFlags "-std=c++17"
@@ -107,7 +99,6 @@ android {
         kotlinCompilerExtensionVersion '1.5.4'
     }
     
-    // Explicitly naming the output APK
     applicationVariants.all { variant ->
         variant.outputs.all {
             outputFileName = "water-marker.apk"
@@ -122,12 +113,10 @@ dependencies {
     implementation platform('androidx.compose:compose-bom:2023.10.01')
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'
-    implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
 }
 """
 
-    # Write files to disk
     files = {
         "settings.gradle": settings_gradle,
         "gradle.properties": gradle_properties,
@@ -135,12 +124,12 @@ dependencies {
         "app/build.gradle": app_build_gradle
     }
 
-    print("📝 Writing Gradle configuration files...")
+    print("📝 Updating Gradle configuration files (Fixing Repo Conflict)...")
     for path, content in files.items():
         try:
             with open(path, "w") as f:
                 f.write(content.strip())
-            print(f"✅ Generated: {path}")
+            print(f"✅ Updated: {path}")
         except Exception as e:
             print(f"❌ Failed to write {path}: {e}")
 
