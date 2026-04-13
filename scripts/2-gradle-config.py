@@ -26,12 +26,10 @@ include ':app'
 android.useAndroidX=true
 android.nonTransitiveRClass=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-# Required for modern Kotlin/Compose compatibility
 kotlin.code.style=official
 """
 
     # 3. Root build.gradle
-    # Updated AGP to 8.7.0 and Kotlin to 2.1.0 for Gradle 8.x compatibility
     root_build_gradle = """
 buildscript {
     repositories {
@@ -41,13 +39,12 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.7.0'
         classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0'
-        // Compose Compiler is now a dedicated plugin in Kotlin 2.0+
         classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.1.0'
     }
 }
 """
 
-    # 4. app/build.gradle
+    # 4. app/build.gradle (Added Material & AppCompat dependencies)
     app_build_gradle = """
 plugins {
     id 'com.android.application'
@@ -108,6 +105,8 @@ android {
 
 dependencies {
     implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.0'
     implementation 'androidx.activity:activity-compose:1.10.0'
     implementation platform('androidx.compose:compose-bom:2025.02.00')
@@ -124,12 +123,12 @@ dependencies {
         "app/build.gradle": app_build_gradle
     }
 
-    print("📝 Updating Gradle configuration for 2026 standards...")
+    print("📝 Updating Gradle dependencies to include Material XML themes...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content.strip())
-    print("✅ Configuration updated.")
+    print("✅ Dependencies updated.")
 
 if __name__ == "__main__":
     generate_gradle_files()
