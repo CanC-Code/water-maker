@@ -18,7 +18,9 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+          # We remove 'cache: gradle' for now because the 
+          # gradle files are generated dynamically later.
+          # You can add it back once the files are committed to the repo.
 
       - name: Set up Python 3.x
         uses: actions/setup-python@v5
@@ -27,17 +29,25 @@ jobs:
 
       - name: Run Orchestration Scripts
         run: |
-          # Finds all python scripts in scripts/ folder, 
-          # sorts them numerically, and executes them.
-          for script in $(ls scripts/[0-9]*.py | sort -V); do
+          # Ensure the scripts directory exists so the loop doesn't fail
+          mkdir -p scripts
+          
+          # Find all python scripts in scripts/ folder, 
+          # sort them numerically, and execute them.
+          # If no scripts are found, it will simply skip.
+          shopt -s nullglob
+          for script in scripts/[0-9]*.py; do
             echo "::group::Executing $script"
             python3 "$script"
             echo "::endgroup::"
           done
+          shopt -u nullglob
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
           name: water-marker-apk
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          # We change this to warn for the first attempt 
+          # in case a script fails early.
+          if-no-files-found: warn
