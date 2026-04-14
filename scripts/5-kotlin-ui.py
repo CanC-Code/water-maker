@@ -13,7 +13,6 @@ class NativeEngine {
 """
 
     # 2. Compliant App Open Ad Manager
-    # This handles the Google strict requirement that an ad expires after 4 hours
     ad_manager_content = """package com.watermarker
 
 import android.app.Activity
@@ -54,7 +53,6 @@ class AppOpenAdManager {
         )
     }
 
-    // Google Policy requires ads to be reloaded if they sit unused for 4 hours
     private fun wasLoadTimeLessThanNHoursAgo(numHours: Long): Boolean {
         val dateDifference = Date().time - loadTime
         val numMilliSecondsPerHour: Long = 3600000
@@ -93,6 +91,7 @@ class AppOpenAdManager {
 """
 
     # 3. Application Class (Lifecycle Observer)
+    # FIX APPLIED: Explicitly call super<Application>.onCreate()
     app_class_content = """package com.watermarker
 
 import android.app.Activity
@@ -108,7 +107,7 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
     private var currentActivity: Activity? = null
 
     override fun onCreate() {
-        super.onCreate()
+        super<Application>.onCreate() // <-- FIX: Explicit supertype call
         registerActivityLifecycleCallbacks(this)
         MobileAds.initialize(this) {}
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
@@ -116,18 +115,17 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         appOpenAdManager = AppOpenAdManager()
     }
 
-    // This triggers when the app comes to the foreground (Compliant trigger)
     override fun onStart(owner: LifecycleOwner) {
-        super.onStart(owner)
+        super<DefaultLifecycleObserver>.onStart(owner) // <-- FIX: Explicit supertype call
         currentActivity?.let {
             appOpenAdManager.showAdIfAvailable(it)
         }
     }
 
-    // --- Activity Lifecycle Tracking ---
     override fun onActivityStarted(activity: Activity) {
         if (!appOpenAdManager.isShowingAd) currentActivity = activity
     }
+    
     override fun onActivityResumed(activity: Activity) {
         currentActivity = activity
     }
@@ -136,11 +134,15 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
     override fun onActivityPaused(activity: Activity) {}
     override fun onActivityStopped(activity: Activity) {}
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-    override fun onActivityDestroyed(activity: Activity) { currentActivity = null }
+    override fun onActivityDestroyed(activity: Activity) { 
+        if (currentActivity == activity) {
+            currentActivity = null
+        }
+    }
 }
 """
 
-    # 4. Main UI (Cleaned up, no manual ad button)
+    # 4. Main UI 
     main_activity_content = """package com.watermarker
 
 import android.content.ContentValues
@@ -350,12 +352,12 @@ suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x:
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Generating Compliant Ad Architecture...")
+    print("🎨 Updating UI and Ad Manager Logic...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Complete: Background/Foreground Ad lifecycle implemented safely.")
+    print("✅ Complete: Explicit supertype calls added to fix Kotlin compilation.")
 
 if __name__ == "__main__":
     generate_ui()
