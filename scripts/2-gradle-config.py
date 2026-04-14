@@ -32,14 +32,15 @@ plugins {
 
 android {
     namespace 'com.watermarker'
-    compileSdk 34  // Changed to 34 for broader stability
+    # Logic Fix: Must be 35 to support AndroidX 1.15.0+ libraries
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.watermarker"
         minSdk 24
-        targetSdk 34 // Changed to 34
-        versionCode 4 // Bumped to 4 to override previous failed installs
-        versionName "1.3"
+        targetSdk 35 
+        versionCode 5 
+        versionName "1.4"
         
         externalNativeBuild {
             cmake {
@@ -86,7 +87,6 @@ rootProject.name = "WaterMarker"
 include ':app'
 """
 
-    # Properties file to enable AndroidX
     gradle_properties = """
 android.useAndroidX=true
 android.enableJetifier=true
@@ -101,12 +101,11 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
     }
 
     for path, content in files.items():
-        # Ensure subdirectory exists
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
             
-    print("✅ Gradle configuration complete (SDK 34 / Version 4).")
+    print("✅ Gradle configuration updated to API 35 (Version 5).")
 
 if __name__ == "__main__":
     generate_gradle_files()
