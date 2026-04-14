@@ -18,7 +18,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -26,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -36,8 +36,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,113 +50,197 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WaterMarkerUI() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     
     var baseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var activeOverlay by remember { mutableStateOf<Bitmap?>(null) }
     
-    // UI State
+    // UI & Transformation State
     var fileName by remember { mutableStateOf("MyWatermark") }
+    var outputFormat by remember { mutableStateOf("PNG") }
     var overlayX by remember { mutableStateOf(0f) }
     var overlayY by remember { mutableStateOf(0f) }
     var overlayScale by remember { mutableStateOf(1f) }
     var overlayRotation by remember { mutableStateOf(0f) }
+    var baseRotation by remember { mutableStateOf(0f) }
     var opacity by remember { mutableStateOf(1.0f) }
     var isSaving by remember { mutableStateOf(false) }
 
+    val formats = listOf("PNG", "JPG", "WEBP")
+
     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { baseBitmap = decodeUri(context, it) }
+        uri?.let { 
+            baseBitmap = decodeUri(context, it)
+            baseRotation = 0f // Reset rotation on new image
+        }
     }
     val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { activeOverlay = decodeUri(context, it) }
+        uri?.let { 
+            activeOverlay = decodeUri(context, it)
+            overlayX = 0f
+            overlayY = 0f
+            overlayScale = 1f
+            overlayRotation = 0f
+        }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF020617))) {
-        // Toolbar
-        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Button(onClick = { basePicker.launch("image/*") }) { Text("LOAD IMAGE", fontSize = 10.sp) }
-            Button(onClick = { overlayPicker.launch("image/*") }) { Text("OVERLAY", fontSize = 10.sp) }
-        }
-
-        // The Workspace Canvas
-        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Black).clipToBounds()) {
-            val constraints = this
-            baseBitmap?.let { base ->
-                // Calculate "Fit" Scale
-                val canvasRatio = constraints.maxWidth / constraints.maxHeight
-                val imageRatio = base.width.toFloat() / base.height.toFloat()
-                
-                val fitScale = if (imageRatio > canvasRatio) {
-                    constraints.maxWidth.value / base.width.toFloat()
-                } else {
-                    constraints.maxHeight.value / base.height.toFloat()
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = Color(0xFF020617)
+    ) { paddingValues ->
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            
+            // 1. Toolbar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(8.dp), 
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(onClick = { basePicker.launch("image/*") }) { Text("SUBJECT", fontSize = 11.sp) }
+                IconButton(onClick = { baseRotation = (baseRotation + 90f) % 360f }) {
+                    Icon(Icons.Default.Refresh, "Rotate Subject", tint = Color.White)
                 }
+                Button(onClick = { overlayPicker.launch("image/*") }) { Text("OVERLAY", fontSize = 11.sp) }
+            }
 
-                Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, rot ->
-                        overlayX += pan.x / fitScale
-                        overlayY += pan.y / fitScale
-                        overlayScale *= zoom
-                        overlayRotation += rot
+            // 2. The Workspace Canvas
+            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Black).clipToBounds()) {
+                val constraints = this
+                baseBitmap?.let { base ->
+                    
+                    // Account for rotation when calculating fit-to-screen
+                    val isPortrait = (baseRotation / 90f) % 2 != 0f
+                    val bw = if (isPortrait) base.height else base.width
+                    val bh = if (isPortrait) base.width else base.height
+
+                    val canvasRatio = constraints.maxWidth.value / constraints.maxHeight.value
+                    val imageRatio = bw.toFloat() / bh.toFloat()
+                    
+                    val fitScale = if (imageRatio > canvasRatio) {
+                        constraints.maxWidth.value / bw.toFloat()
+                    } else {
+                        constraints.maxHeight.value / bh.toFloat()
                     }
-                }) {
-                    drawContext.canvas.save()
-                    drawContext.canvas.translate(size.width / 2f, size.height / 2f)
-                    drawContext.canvas.scale(fitScale, fitScale)
 
-                    // Draw the Base (Original Image)
-                    drawImage(base.asImageBitmap(), dstOffset = IntOffset(-base.width / 2, -base.height / 2))
-
-                    // Draw Overlay relative to Base center
-                    activeOverlay?.let { over ->
+                    Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, rot ->
+                            overlayX += pan.x / fitScale
+                            overlayY += pan.y / fitScale
+                            overlayScale *= zoom
+                            overlayRotation += rot
+                        }
+                    }) {
                         drawContext.canvas.save()
-                        drawContext.canvas.translate(overlayX, overlayY)
-                        drawContext.canvas.rotate(overlayRotation)
-                        drawContext.canvas.scale(overlayScale, overlayScale)
-                        drawImage(
-                            over.asImageBitmap(), 
-                            alpha = opacity,
-                            dstOffset = IntOffset(-over.width / 2, -over.height / 2)
-                        )
+                        drawContext.canvas.translate(size.width / 2f, size.height / 2f)
+                        drawContext.canvas.scale(fitScale, fitScale)
+
+                        // Draw the Base (Subject) Image with rotation
+                        drawContext.canvas.save()
+                        drawContext.canvas.rotate(baseRotation)
+                        drawImage(base.asImageBitmap(), dstOffset = IntOffset(-base.width / 2, -base.height / 2))
+                        drawContext.canvas.restore()
+
+                        // Draw Overlay relative to Base center
+                        activeOverlay?.let { over ->
+                            drawContext.canvas.save()
+                            drawContext.canvas.translate(overlayX, overlayY)
+                            drawContext.canvas.rotate(overlayRotation)
+                            drawContext.canvas.scale(overlayScale, overlayScale)
+                            drawImage(
+                                over.asImageBitmap(), 
+                                alpha = opacity,
+                                dstOffset = IntOffset(-over.width / 2, -over.height / 2)
+                            )
+                            drawContext.canvas.restore()
+                        }
                         drawContext.canvas.restore()
                     }
-                    drawContext.canvas.restore()
+                } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Load a subject image to begin", color = Color.Gray)
                 }
             }
-        }
 
-        // QOL Footer
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                OutlinedTextField(
-                    value = fileName,
-                    onValueChange = { fileName = it },
-                    label = { Text("Filename") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedTextColor = Color.White, focusedTextColor = Color.White)
-                )
-                Spacer(Modifier.height(8.dp))
-                Text("Opacity: ${(opacity * 100).toInt()}%", color = Color.White)
-                Slider(value = opacity, onValueChange = { opacity = it })
-                
-                Button(
-                    onClick = {
-                        if (baseBitmap != null && activeOverlay != null) {
-                            scope.launch {
-                                isSaving = true
-                                saveLossless(context, baseBitmap!!, activeOverlay!!, overlayX, overlayY, overlayScale, overlayRotation, opacity, fileName)
-                                isSaving = false
+            // 3. QOL Footer Controls
+            Card(
+                modifier = Modifier.fillMaxWidth(), 
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    
+                    // Filename Input
+                    OutlinedTextField(
+                        value = fileName,
+                        onValueChange = { fileName = it },
+                        label = { Text("Filename") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedTextColor = Color.White, 
+                            focusedTextColor = Color.White,
+                            unfocusedLabelColor = Color.Gray,
+                            focusedLabelColor = Color(0xFF38BDF8)
+                        )
+                    )
+                    
+                    Spacer(Modifier.height(8.dp))
+                    
+                    // Format Selector
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Format:", color = Color.White, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            formats.forEach { format ->
+                                FilterChip(
+                                    selected = outputFormat == format,
+                                    onClick = { outputFormat = format },
+                                    label = { Text(format) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF38BDF8),
+                                        selectedLabelColor = Color(0xFF020617)
+                                    )
+                                )
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
-                ) {
-                    Text(if (isSaving) "COMPRESSING..." else "EXPORT LOSSLESS IMAGE")
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    
+                    // Opacity Slider
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Opacity", color = Color.Gray)
+                        Text("${(opacity * 100).toInt()}%", color = Color(0xFF38BDF8))
+                    }
+                    Slider(value = opacity, onValueChange = { opacity = it }, colors = SliderDefaults.colors(thumbColor = Color(0xFF38BDF8), activeTrackColor = Color(0xFF38BDF8)))
+                    
+                    // Save Button
+                    Button(
+                        onClick = {
+                            if (baseBitmap != null && activeOverlay != null) {
+                                scope.launch {
+                                    isSaving = true
+                                    val success = saveCustomFormat(context, baseBitmap!!, activeOverlay!!, overlayX, overlayY, overlayScale, overlayRotation, opacity, baseRotation, fileName, outputFormat)
+                                    isSaving = false
+                                    
+                                    if(success) {
+                                        snackbarHostState.showSnackbar("Image successfully exported!")
+                                    } else {
+                                        snackbarHostState.showSnackbar("Failed to export image.")
+                                    }
+                                }
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("Please load both images first.") }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
+                    ) {
+                        Text(if (isSaving) "PROCESSING..." else "EXPORT IMAGE", color = Color(0xFF020617), fontWeight = FontWeight.ExtraBold)
+                    }
                 }
             }
         }
@@ -171,44 +255,68 @@ fun decodeUri(context: Context, uri: Uri): Bitmap? {
     } catch (e: Exception) { null }
 }
 
-suspend fun saveLossless(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, s: Float, r: Float, a: Float, name: String) {
-    withContext(Dispatchers.IO) {
-        // Pixel Matching logic: create a bitmap of exact dimensions as original
-        val result = base.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = Canvas(result)
-        val paint = Paint().apply { alpha = (a * 255).toInt() }
-        
-        val matrix = Matrix()
-        // Aligning coordinates to match the Canvas logic exactly
-        matrix.postTranslate(-overlay.width / 2f, -overlay.height / 2f)
-        matrix.postScale(s, s)
-        matrix.postRotate(r)
-        matrix.postTranslate(base.width / 2f + x, base.height / 2f + y)
-        
-        canvas.drawBitmap(overlay, matrix, paint)
+suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, s: Float, r: Float, a: Float, baseRot: Float, name: String, format: String): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            // 1. Handle Source Rotation
+            val matrixBase = Matrix()
+            matrixBase.postRotate(baseRot)
+            val finalBase = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrixBase, true)
 
-        val cleanName = name.replace("[^a-zA-Z0-9]".toRegex(), "_")
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "$cleanName.webp")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/webp")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/WaterMarker")
+            // 2. Prepare the Canvas
+            val result = finalBase.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(result)
+            
+            // JPG Fix: Draw white background to replace alpha transparency
+            if (format == "JPG") {
+                canvas.drawColor(android.graphics.Color.WHITE)
+                canvas.drawBitmap(finalBase, 0f, 0f, null)
             }
-        }
 
-        val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-        uri?.let {
-            context.contentResolver.openOutputStream(it)?.use { stream ->
-                // 2026 Strategy: WEBP_LOSSLESS for max size reduction with 0 quality loss
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    result.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, stream)
-                } else {
-                    result.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            val paint = Paint().apply { 
+                alpha = (a * 255).toInt()
+                isFilterBitmap = true 
+            }
+            
+            // 3. Align the Overlay correctly
+            val matrixOverlay = Matrix()
+            matrixOverlay.postTranslate(-overlay.width / 2f, -overlay.height / 2f)
+            matrixOverlay.postScale(s, s)
+            matrixOverlay.postRotate(r)
+            matrixOverlay.postTranslate(result.width / 2f + x, result.height / 2f + y)
+            
+            canvas.drawBitmap(overlay, matrixOverlay, paint)
+
+            // 4. File Setup
+            val cleanName = name.replace("[^a-zA-Z0-9]".toRegex(), "_")
+            val ext = format.lowercase()
+            val mime = "image/${if (ext == "jpg") "jpeg" else ext}"
+            
+            val compressFormat = when (format) {
+                "JPG" -> Bitmap.CompressFormat.JPEG
+                "PNG" -> Bitmap.CompressFormat.PNG
+                "WEBP" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.WEBP
+                else -> Bitmap.CompressFormat.PNG
+            }
+
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "$cleanName.$ext")
+                put(MediaStore.MediaColumns.MIME_TYPE, mime)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/WaterMarker")
                 }
             }
-        }
-        withContext(Dispatchers.Main) { 
-            Toast.makeText(context, "Metadata Stripped & Saved to Gallery", Toast.LENGTH_LONG).show() 
+
+            // 5. Write to Disk
+            val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            uri?.let {
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    result.compress(compressFormat, 100, stream)
+                }
+            }
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 }
@@ -220,11 +328,12 @@ suspend fun saveLossless(context: Context, base: Bitmap, overlay: Bitmap, x: Flo
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
+    print("🎨 Updating GUI...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Logic Updated: Fit-to-screen, Metadata stripping, and WebP Lossless enabled.")
+    print("✅ Studio UI updated: Format selection, Source Rotation, and Snackbars added.")
 
 if __name__ == "__main__":
     generate_ui()
