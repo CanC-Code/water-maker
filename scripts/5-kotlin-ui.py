@@ -1,7 +1,7 @@
 import os
 
 def generate_ui():
-    engine = """package com.watermarker
+    engine_content = """package com.watermarker
 import android.graphics.Bitmap
 class NativeEngine {
     companion object { init { System.loadLibrary("watermarker") } }
@@ -9,7 +9,7 @@ class NativeEngine {
 }
 """
 
-    main_activity = """package com.watermarker
+    main_activity_content = """package com.watermarker
 
 import android.content.ContentValues
 import android.content.Context
@@ -36,9 +36,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -48,24 +46,23 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { WaterMarkerStudio() }
+        setContent { WaterMarkerUI() }
     }
 }
 
 @Composable
-fun WaterMarkerStudio() {
+fun WaterMarkerUI() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
     var baseBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var activeOverlay by remember { mutableStateOf<Bitmap?>(null) }
     
-    // Studio State
-    var baseRotation by remember { mutableStateOf(0f) }
     var overlayX by remember { mutableStateOf(0f) }
     var overlayY by remember { mutableStateOf(0f) }
     var overlayScale by remember { mutableStateOf(0.5f) }
     var overlayRotation by remember { mutableStateOf(0f) }
+    var baseRotation by remember { mutableStateOf(0f) }
     var opacity by remember { mutableStateOf(0.8f) }
     var isSaving by remember { mutableStateOf(false) }
 
@@ -77,31 +74,21 @@ fun WaterMarkerStudio() {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF020617))) {
-        // Header
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("PRO OVERLAY STUDIO", color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
-            if (isSaving) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-        }
-
-        // Toolbar
-        Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF0F172A)).padding(8.dp)) {
-            Button(onClick = { basePicker.launch("image/*") }) { Text("SUBJECT", fontSize = 10.sp) }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { overlayPicker.launch("image/*") }) { Text("OVERLAY", fontSize = 10.sp) }
-            Spacer(Modifier.weight(1f))
+        Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Button(onClick = { basePicker.launch("image/*") }) { Text("LOAD IMAGE", fontSize = 10.sp) }
+            Button(onClick = { overlayPicker.launch("image/*") }) { Text("LOAD OVERLAY", fontSize = 10.sp) }
             IconButton(onClick = { baseRotation = (baseRotation + 90f) % 360f }) {
                 Icon(Icons.Default.Refresh, "Rotate", tint = Color.White)
             }
         }
 
-        // Canvas Workspace
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, rotation ->
+                detectTransformGestures { _, pan, zoom, rot ->
                     overlayX += pan.x
                     overlayY += pan.y
                     overlayScale *= zoom
-                    overlayRotation += rotation
+                    overlayRotation += rot
                 }
             }
         ) {
@@ -113,46 +100,29 @@ fun WaterMarkerStudio() {
                     drawContext.canvas.save()
                     drawContext.canvas.translate(canvasWidth / 2f, canvasHeight / 2f)
                     drawContext.canvas.rotate(baseRotation)
-                    
-                    // Draw Subject
-                    drawImage(
-                        base.asImageBitmap(),
-                        dstSize = androidx.compose.ui.unit.IntSize(canvasWidth.toInt(), canvasHeight.toInt()),
-                        dstOffset = androidx.compose.ui.unit.IntOffset(-(canvasWidth/2).toInt(), -(canvasHeight/2).toInt())
-                    )
+                    drawImage(base.asImageBitmap(), dstOffset = androidx.compose.ui.unit.IntOffset(-(base.width/2), -(base.height/2)))
                     drawContext.canvas.restore()
 
-                    // Draw Overlay
                     activeOverlay?.let { over ->
                         drawContext.canvas.save()
                         drawContext.canvas.translate(canvasWidth / 2f + overlayX, canvasHeight / 2f + overlayY)
                         drawContext.canvas.rotate(overlayRotation)
                         drawContext.canvas.scale(overlayScale, overlayScale)
-                        
-                        drawImage(
-                            over.asImageBitmap(),
-                            alpha = opacity,
-                            dstOffset = androidx.compose.ui.unit.IntOffset(-(over.width/2), -(over.height/2))
-                        )
+                        drawImage(over.asImageBitmap(), alpha = opacity, dstOffset = androidx.compose.ui.unit.IntOffset(-(over.width/2), -(over.height/2)))
                         drawContext.canvas.restore()
                     }
                 }
-            } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("LOAD AN IMAGE TO BEGIN", color = Color.Gray)
             }
         }
 
-        // Footer Controls
         Column(modifier = Modifier.background(Color(0xFF0F172A)).padding(16.dp)) {
-            Text("OPACITY: ${(opacity * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
-            Slider(value = opacity, onValueChange = { opacity = it }, colors = SliderDefaults.colors(thumbColor = Color(0xFF38BDF8)))
-            
+            Slider(value = opacity, onValueChange = { opacity = it })
             Button(
                 onClick = {
                     if (baseBitmap != null && activeOverlay != null) {
                         scope.launch {
                             isSaving = true
-                            saveImage(context, baseBitmap!!, activeOverlay!!, overlayX, overlayY, overlayScale, overlayRotation, opacity, baseRotation)
+                            saveFullResolution(context, baseBitmap!!, activeOverlay!!, overlayX, overlayY, overlayScale, overlayRotation, opacity, baseRotation)
                             isSaving = false
                         }
                     }
@@ -160,7 +130,7 @@ fun WaterMarkerStudio() {
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
             ) {
-                Text("SAVE WATERMARKED IMAGE", fontWeight = FontWeight.ExtraBold)
+                Text(if (isSaving) "SAVING..." else "SAVE WATERMARKED IMAGE")
             }
         }
     }
@@ -172,20 +142,11 @@ fun decodeUri(context: Context, uri: Uri): Bitmap? {
     } catch (e: Exception) { null }
 }
 
-suspend fun saveImage(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, scale: Float, rot: Float, alpha: Float, baseRot: Float) {
+suspend fun saveFullResolution(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, s: Float, r: Float, a: Float, br: Float) {
     withContext(Dispatchers.IO) {
         val result = base.copy(Bitmap.Config.ARGB_8888, true)
-        val canvas = android.graphics.Canvas(result)
+        NativeEngine().blendImages(result, overlay, x, y, s, r, a)
         
-        // This mirrors the on-screen alignment logic for the high-res save
-        val paint = Paint().apply { this.alpha = (alpha * 255).toInt() }
-        val matrix = Matrix()
-        matrix.postTranslate(x, y)
-        matrix.postRotate(rot, base.width/2f + x, base.height/2f + y)
-        matrix.postScale(scale, scale, base.width/2f + x, base.height/2f + y)
-        
-        canvas.drawBitmap(overlay, matrix, paint)
-
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "WM_${System.currentTimeMillis()}.png")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
@@ -207,15 +168,15 @@ suspend fun saveImage(context: Context, base: Bitmap, overlay: Bitmap, x: Float,
 
     package_path = "app/src/main/java/com/watermarker"
     files = {
-        f"{package_path}/NativeEngine.kt": engine.strip(),
-        f"{package_path}/MainActivity.kt": main_activity.strip()
+        f"{package_path}/NativeEngine.kt": engine_content.strip(),
+        f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Studio UI and Save Logic Enhanced.")
+    print("✅ Kotlin UI with Canvas and gestures updated.")
 
 if __name__ == "__main__":
     generate_ui()
