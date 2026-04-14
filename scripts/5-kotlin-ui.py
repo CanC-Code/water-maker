@@ -3,71 +3,46 @@ import os
 def generate_ui():
     package_path = "app/src/main/java/com/watermarker"
     
-    # --- 1. Application Class ---
     app_class_content = """package com.watermarker
-
 import android.app.Application
 import com.google.android.gms.ads.MobileAds
-
 class WaterMarkerApp : Application() {
     lateinit var appOpenAdManager: AppOpenAdManager
-    
     override fun onCreate() {
         super.onCreate()
         MobileAds.initialize(this) {}
         appOpenAdManager = AppOpenAdManager(this)
         appOpenAdManager.loadAd()
     }
-}
-"""
+}"""
 
-    # --- 2. App Open Ad Manager ---
     ad_manager_content = """package com.watermarker
-
 import android.content.Context
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.appopen.AppOpenAd
-
 class AppOpenAdManager(private val context: Context) {
     private var appOpenAd: AppOpenAd? = null
     private var isLoadingAd = false
-
     fun loadAd() {
         if (isLoadingAd || appOpenAd != null) return
         isLoadingAd = true
-        
-        val adUnitId = "ca-app-pub-3940256099942544/3419835294"
         val request = AdRequest.Builder().build()
-        
-        AppOpenAd.load(
-            context, adUnitId, request,
+        AppOpenAd.load(context, "ca-app-pub-3940256099942544/3419835294", request,
             object : AppOpenAd.AppOpenAdLoadCallback() {
-                override fun onAdLoaded(ad: AppOpenAd) {
-                    appOpenAd = ad
-                    isLoadingAd = false
-                }
-                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                    isLoadingAd = false
-                }
+                override fun onAdLoaded(ad: AppOpenAd) { appOpenAd = ad; isLoadingAd = false }
+                override fun onAdFailedToLoad(e: LoadAdError) { isLoadingAd = false }
             }
         )
     }
-}
-"""
+}"""
 
-    # --- 3. Native Engine Wrapper ---
     engine_content = """package com.watermarker
-
 class NativeEngine {
-    init {
-        System.loadLibrary("watermarker")
-    }
+    init { System.loadLibrary("watermarker") }
     external fun processWatermark(baseImagePath: String, overlayImagePath: String, outputPath: String, quality: Int): Boolean
-}
-"""
+}"""
 
-    # --- 4. Main Activity & Compose UI ---
     main_activity_content = r"""package com.watermarker
 
 import android.content.Context
@@ -119,30 +94,24 @@ import kotlin.math.*
 @Composable
 fun ColorWheel(onColorSelected: (Color) -> Unit) {
     var currentPosition by remember { mutableStateOf(Offset.Unspecified) }
-    val wheelRadius = 100.dp
-    
     Canvas(modifier = Modifier
-        .size(wheelRadius * 2)
+        .size(200.dp)
         .pointerInput(Unit) { detectDragGestures { change, _ -> currentPosition = change.position } }
         .pointerInput(Unit) { detectTapGestures { offset -> currentPosition = offset } }
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.minDimension / 2f
-        
         val colors = listOf(Color.Red, Color.Magenta, Color.Blue, Color.Cyan, Color.Green, Color.Yellow, Color.Red)
         drawCircle(brush = Brush.sweepGradient(colors, center = center), radius = radius, center = center)
         drawCircle(brush = Brush.radialGradient(listOf(Color.White, Color.Transparent), center = center, radius = radius), radius = radius, center = center)
-        
         if (currentPosition != Offset.Unspecified) {
             val dx = currentPosition.x - center.x
             val dy = currentPosition.y - center.y
             val dist = sqrt(dx*dx + dy*dy)
             if (dist <= radius) {
                 val angle = (atan2(dy.toDouble(), dx.toDouble()) * 180 / PI + 360) % 360
-                val saturation = dist / radius
-                val hsv = floatArrayOf(angle.toFloat(), saturation.toFloat(), 1f)
-                val colorInt = android.graphics.Color.HSVToColor(hsv)
-                onColorSelected(Color(colorInt))
+                val hsv = floatArrayOf(angle.toFloat(), (dist / radius).toFloat(), 1f)
+                onColorSelected(Color(android.graphics.Color.HSVToColor(hsv)))
                 drawCircle(color = Color.Black, radius = 15f, center = currentPosition, style = Stroke(width = 4f))
             }
         }
@@ -156,21 +125,16 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val systemDark = isSystemInDarkTheme()
-            var isDarkMode by remember { mutableStateOf(systemDark) }
-            val colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()
-
-            MaterialTheme(colorScheme = colorScheme) {
+            var isDarkMode by remember { mutableStateOf(isSystemInDarkTheme()) }
+            MaterialTheme(colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     var showMenu by remember { mutableStateOf(false) }
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
-                    
                     var showTextDialog by remember { mutableStateOf(false) }
                     var overlayText by remember { mutableStateOf("") }
                     var overlayTextColor by remember { mutableStateOf(Color.Black) }
                     var customTypeface by remember { mutableStateOf<Typeface?>(null) }
-                    
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
                     
@@ -180,29 +144,18 @@ class MainActivity : ComponentActivity() {
                     var overlayRotation by remember { mutableStateOf(0f) }
                     
                     val context = LocalContext.current
-                    val coroutineScope = rememberCoroutineScope() // Added Coroutine Scope for background work
+                    val coroutineScope = rememberCoroutineScope()
                     
-                    val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> 
-                        baseImageUri = uri 
-                        baseRotation = 0f
-                    }
-                    val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> 
-                        overlayImageUri = uri
-                        overlayOffset = Offset.Zero
-                        overlayScale = 1f
-                        overlayRotation = 0f
-                    }
+                    val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri; baseRotation = 0f }
+                    val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f }
                     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         uri?.let {
                             try {
-                                val inputStream = context.contentResolver.openInputStream(it)
                                 val tempFile = File(context.cacheDir, "custom_font.ttf")
-                                FileOutputStream(tempFile).use { out -> inputStream?.copyTo(out) }
+                                FileOutputStream(tempFile).use { out -> context.contentResolver.openInputStream(it)?.copyTo(out) }
                                 customTypeface = Typeface.createFromFile(tempFile)
-                                Toast.makeText(context, "Custom Font loaded successfully!", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Failed to load font file.", Toast.LENGTH_SHORT).show()
-                            }
+                                Toast.makeText(context, "Font loaded!", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) { Toast.makeText(context, "Failed to load font.", Toast.LENGTH_SHORT).show() }
                         }
                     }
 
@@ -210,14 +163,11 @@ class MainActivity : ComponentActivity() {
                         topBar = {
                             TopAppBar(
                                 title = { Text("WaterMaker") },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                ),
+                                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                 actions = {
-                                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, contentDescription = "Menu") }
+                                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, "Menu") }
                                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                        DropdownMenuItem(text = { Text("Toggle Theme (Light/Dark)") }, onClick = { showMenu = false; isDarkMode = !isDarkMode })
+                                        DropdownMenuItem(text = { Text("Toggle Theme") }, onClick = { showMenu = false; isDarkMode = !isDarkMode })
                                         Divider()
                                         DropdownMenuItem(text = { Text("Load Base Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                         DropdownMenuItem(text = { Text("Load Overlay Image") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
@@ -228,106 +178,56 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     ) { paddingValues ->
-                        Column(
-                            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+                        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (showTextDialog) {
                                 Card(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
                                     Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("Create Text Overlay", style = MaterialTheme.typography.titleMedium)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        OutlinedTextField(value = overlayText, onValueChange = { overlayText = it }, label = { Text("Type text here") }, modifier = Modifier.fillMaxWidth())
+                                        Text("Create Text", style = MaterialTheme.typography.titleMedium)
+                                        OutlinedTextField(value = overlayText, onValueChange = { overlayText = it }, label = { Text("Type text") })
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        Text("Drag to pick a color:")
-                                        Spacer(modifier = Modifier.height(8.dp))
                                         ColorWheel { color -> overlayTextColor = color }
                                         Spacer(modifier = Modifier.height(16.dp))
                                         Button(onClick = {
                                             showTextDialog = false
                                             if (overlayText.isNotEmpty()) {
-                                                val bitmap = createTextBitmap(overlayText, overlayTextColor.toArgb(), customTypeface)
-                                                val tempFile = File(context.cacheDir, "text_overlay.png")
-                                                FileOutputStream(tempFile).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                                                val bmp = createTextBitmap(overlayText, overlayTextColor.toArgb(), customTypeface)
+                                                val tempFile = File(context.cacheDir, "text.png")
+                                                FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                                 overlayImageUri = Uri.fromFile(tempFile)
-                                                overlayOffset = Offset.Zero
-                                                overlayScale = 1f
-                                                overlayRotation = 0f
-                                                Toast.makeText(context, "Text overlay generated!", Toast.LENGTH_SHORT).show()
+                                                overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f
                                             }
-                                        }) { Text("Apply Text Overlay") }
+                                        }) { Text("Apply") }
                                     }
                                 }
                             }
 
-                            val canvasBgColor = if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFE0E0E0)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .background(canvasBgColor) 
-                                    .clipToBounds()
-                            ) {
+                            Box(modifier = Modifier.fillMaxWidth().weight(1f).background(if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFE0E0E0)).clipToBounds()) {
                                 val baseBitmap = remember(baseImageUri) { loadBitmapFromUri(context, baseImageUri) }
                                 val overlayBitmap = remember(overlayImageUri) { loadBitmapFromUri(context, overlayImageUri) }
-
                                 if (baseBitmap != null) {
-                                    Image(
-                                        bitmap = baseBitmap,
-                                        contentDescription = "Base Image",
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .rotate(baseRotation),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                } else {
-                                    Text(
-                                        "Load a base image from the menu",
-                                        modifier = Modifier.align(Alignment.Center),
-                                        color = if (isDarkMode) Color.LightGray else Color.DarkGray
-                                    )
+                                    Image(bitmap = baseBitmap, contentDescription = null, modifier = Modifier.fillMaxSize().rotate(baseRotation), contentScale = ContentScale.Fit)
                                 }
-
                                 if (overlayBitmap != null) {
-                                    Image(
-                                        bitmap = overlayBitmap,
-                                        contentDescription = "Overlay Image",
-                                        modifier = Modifier
-                                            // FIX: Move all transformations into a single graphicsLayer for smooth interaction
-                                            .graphicsLayer(
-                                                translationX = overlayOffset.x,
-                                                translationY = overlayOffset.y,
-                                                scaleX = overlayScale,
-                                                scaleY = overlayScale,
-                                                rotationZ = overlayRotation
-                                            )
-                                            .pointerInput(Unit) {
-                                                detectTransformGestures { _, pan, zoom, rotation ->
-                                                    overlayOffset += pan
-                                                    overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
-                                                    overlayRotation += rotation
-                                                }
+                                    Image(bitmap = overlayBitmap, contentDescription = null, modifier = Modifier
+                                        .graphicsLayer(translationX = overlayOffset.x, translationY = overlayOffset.y, scaleX = overlayScale, scaleY = overlayScale, rotationZ = overlayRotation)
+                                        .pointerInput(Unit) {
+                                            detectTransformGestures { _, pan, zoom, rotation ->
+                                                overlayOffset += pan
+                                                overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
+                                                overlayRotation += rotation
                                             }
+                                        }
                                     )
                                 }
                             }
                             
                             Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-                                OutlinedButton(
-                                    onClick = { baseRotation += 90f },
-                                    enabled = baseImageUri != null
-                                ) {
-                                    Text("Rotate Base 90°")
-                                }
+                                OutlinedButton(onClick = { baseRotation += 90f }, enabled = baseImageUri != null) { Text("Rotate Base 90°") }
                             }
                             
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text("Export Quality: ${exportQuality.toInt()}%")
                             Slider(value = exportQuality, onValueChange = { exportQuality = it }, valueRange = 10f..100f, enabled = outputFormat != "PNG")
-                            Spacer(modifier = Modifier.height(10.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Output Format:")
-                                Spacer(modifier = Modifier.width(8.dp))
                                 listOf("JPEG", "PNG", "WEBP").forEach { format ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         RadioButton(selected = outputFormat == format, onClick = { outputFormat = format })
@@ -335,33 +235,47 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
                             
-                            // FIX: Actually execute the C++ engine!
+                            Spacer(modifier = Modifier.height(10.dp))
                             Button(
                                 onClick = { 
-                                    if (baseImageUri != null && overlayImageUri != null) {
-                                        Toast.makeText(context, "Processing with Native Engine...", Toast.LENGTH_SHORT).show()
+                                    val currentBase = baseImageUri
+                                    val currentOverlay = overlayImageUri
+                                    if (currentBase != null && currentOverlay != null) {
+                                        Toast.makeText(context, "Processing...", Toast.LENGTH_SHORT).show()
                                         coroutineScope.launch(Dispatchers.IO) {
-                                            // 1. Save out the files so C++ can read absolute paths
-                                            val basePath = prepareBaseImage(context, baseImageUri!!, baseRotation, "temp_base.img")
-                                            val overlayPath = uriToFile(context, overlayImageUri!!, "temp_overlay.img")
-                                            val outputPath = File(context.cacheDir, "final_watermark.${outputFormat.lowercase()}").absolutePath
-                                            
-                                            // 2. Call C++ Code
-                                            if (basePath != null && overlayPath != null) {
-                                                val success = nativeEngine.processWatermark(basePath, overlayPath, outputPath, exportQuality.toInt())
+                                            try {
+                                                val basePath = prepareBaseImage(context, currentBase, baseRotation, "temp_base.img")
+                                                val overlayPath = uriToFile(context, currentOverlay, "temp_overlay.img")
+                                                
+                                                if (basePath == null || overlayPath == null) {
+                                                    withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Error: Image too large.", Toast.LENGTH_LONG).show() }
+                                                    return@launch
+                                                }
+                                                
+                                                val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
+                                                
+                                                // Prevent crashes if C++ engine throws Fatal exception
+                                                val success = try {
+                                                    nativeEngine.processWatermark(basePath, overlayPath, outputPath, exportQuality.toInt())
+                                                } catch (t: Throwable) {
+                                                    t.printStackTrace()
+                                                    false
+                                                }
+                                                
                                                 withContext(Dispatchers.Main) {
                                                     if (success) {
-                                                        Toast.makeText(context, "✅ Success! Saved to: $outputPath", Toast.LENGTH_LONG).show()
+                                                        val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
+                                                        if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
+                                                        else Toast.makeText(context, "❌ Processed, but failed to save to Gallery.", Toast.LENGTH_LONG).show()
                                                     } else {
-                                                        Toast.makeText(context, "❌ Native Engine failed.", Toast.LENGTH_LONG).show()
+                                                        Toast.makeText(context, "❌ Native Engine Error.", Toast.LENGTH_LONG).show()
                                                     }
                                                 }
+                                            } catch (e: Exception) {
+                                                withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Internal App Crash Prevented.", Toast.LENGTH_LONG).show() }
                                             }
                                         }
-                                    } else {
-                                        Toast.makeText(context, "Load a Base and Overlay image first!", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -373,63 +287,58 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-    // --- HELPER FUNCTIONS ---
-    
     private fun loadBitmapFromUri(context: Context, uri: Uri?): ImageBitmap? {
         if (uri == null) return null
-        return try {
-            val stream = context.contentResolver.openInputStream(uri)
-            BitmapFactory.decodeStream(stream)?.asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
+        return try { BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri))?.asImageBitmap() } catch (e: Exception) { null }
     }
 
-    // Resolves base image rotation and saves out a temp file for C++
     private fun prepareBaseImage(context: Context, uri: Uri, rotation: Float, fileName: String): String? {
         return try {
-            val stream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(stream) ?: return null
-            
-            val matrix = Matrix().apply { postRotate(rotation) }
-            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            
+            val bitmap = BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri)) ?: return null
+            val finalBitmap = if (rotation != 0f) {
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postRotate(rotation) }, true)
+            } else bitmap
             val tempFile = File(context.cacheDir, fileName)
-            FileOutputStream(tempFile).use { out -> rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out) }
+            FileOutputStream(tempFile).use { finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, it) }
             tempFile.absolutePath
-        } catch (e: Exception) {
-            null
-        }
+        } catch (e: OutOfMemoryError) { null } catch (e: Exception) { null }
     }
 
-    // Copies raw overlay content into the cache so C++ can read it
     private fun uriToFile(context: Context, uri: Uri, fileName: String): String? {
-        if (uri.scheme == "file") return uri.path // Already a file
+        if (uri.scheme == "file") return uri.path
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
             val tempFile = File(context.cacheDir, fileName)
-            FileOutputStream(tempFile).use { out -> inputStream?.copyTo(out) }
+            FileOutputStream(tempFile).use { out -> context.contentResolver.openInputStream(uri)?.copyTo(out) }
             tempFile.absolutePath
-        } catch (e: Exception) {
-            null
+        } catch (e: Exception) { null }
+    }
+
+    // EXPORT TO USER'S PHOTO GALLERY
+    private fun saveToGallery(context: Context, file: File, fileName: String): Uri? {
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/${file.extension}")
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/WaterMarker")
         }
+        return try {
+            val uri = context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            uri?.also { destUri ->
+                context.contentResolver.openOutputStream(destUri)?.use { out ->
+                    file.inputStream().use { input -> input.copyTo(out) }
+                }
+            }
+        } catch (e: Exception) { null }
     }
 
     private fun createTextBitmap(text: String, color: Int, typeface: Typeface?): Bitmap {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            this.textSize = 200f
-            this.typeface = typeface ?: Typeface.DEFAULT
-            this.textAlign = Paint.Align.CENTER
-        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.textSize = 200f; this.typeface = typeface ?: Typeface.DEFAULT; this.textAlign = Paint.Align.CENTER }
         val baseline = -paint.ascent()
         val width = (paint.measureText(text) + 60).toInt()
         val height = (baseline + paint.descent() + 60).toInt()
         val bmpWidth = if(width > 0) width else 100
         val bmpHeight = if(height > 0) height else 100
         val bitmap = Bitmap.createBitmap(bmpWidth, bmpHeight, Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-        canvas.drawText(text, bmpWidth / 2f, baseline + 30f, paint)
+        android.graphics.Canvas(bitmap).drawText(text, bmpWidth / 2f, baseline + 30f, paint)
         return bitmap
     }
 }
@@ -442,12 +351,11 @@ class MainActivity : ComponentActivity() {
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Generating UI with Smooth Transformations and C++ Execution...")
+    print("🎨 Generating UI with Crash-Proof Native Wrapper and Gallery Export...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Complete: Your button will now execute the watermark and your gestures will be buttery smooth!")
 
 if __name__ == "__main__":
     generate_ui()
