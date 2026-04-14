@@ -12,7 +12,7 @@ class NativeEngine {
 }
 """
 
-    # 2. Compliant App Open Ad Manager (With Callback Support)
+    # 2. Compliant App Open Ad Manager (With Fail-Fast Logic & Test ID)
     ad_manager_content = """package com.watermarker
 
 import android.app.Activity
@@ -28,10 +28,13 @@ class AppOpenAdManager {
     private var appOpenAd: AppOpenAd? = null
     private var isLoadingAd = false
     var isShowingAd = false
-    var isInitialLaunch = true // Tracks cold starts for Splash Screen logic
+    var isAdFailed = false // <-- Added to allow the splash screen to fail-fast
+    var isInitialLaunch = true 
     private var loadTime: Long = 0
     
-    private val adUnitId = "ca-app-pub-7732503595590477/4459993522"
+    // IMPORTANT: Official Google Test Ad ID for App Open Ads.
+    // Replace with "ca-app-pub-7732503595590477/4459993522" ONLY when publishing to the Play Store.
+    private val adUnitId = "ca-app-pub-3940256099942544/9257395921"
 
     interface OnShowAdCompleteListener {
         fun onShowAdComplete()
@@ -40,6 +43,7 @@ class AppOpenAdManager {
     fun loadAd(context: Context) {
         if (isLoadingAd || isAdAvailable()) return
         isLoadingAd = true
+        isAdFailed = false
         val request = AdRequest.Builder().build()
         
         AppOpenAd.load(
@@ -52,6 +56,7 @@ class AppOpenAdManager {
                 }
                 override fun onAdFailedToLoad(loadAdError: LoadAdError) {
                     isLoadingAd = false
+                    isAdFailed = true // <-- Tells Splash Screen to stop waiting
                 }
             }
         )
@@ -119,14 +124,12 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         
         appOpenAdManager = AppOpenAdManager()
-        appOpenAdManager.loadAd(this) // Eagerly load ad the millisecond the app launches
+        appOpenAdManager.loadAd(this) 
     }
 
     override fun onStart(owner: LifecycleOwner) {
         super<DefaultLifecycleObserver>.onStart(owner)
         currentActivity?.let {
-            // Only trigger ad via lifecycle if it's NOT the first launch
-            // First launch is handled by the Splash Screen in MainActivity to prevent sudden pop-ups
             if (!appOpenAdManager.isInitialLaunch) {
                 appOpenAdManager.showAdIfAvailable(it, object : AppOpenAdManager.OnShowAdCompleteListener {
                     override fun onShowAdComplete() {}
@@ -149,7 +152,7 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
 }
 """
 
-    # 4. Main UI (With Splash Screen & Corrected Canvas Drawing)
+    # 4. Main UI 
     main_activity_content = """package com.watermarker
 
 import android.content.ContentValues
@@ -194,12 +197,15 @@ class MainActivity : ComponentActivity() {
         setContent { 
             var isAppReady by remember { mutableStateOf(false) }
 
-            // SPLASH SCREEN LOGIC: Wait for ad to load on Cold Start
+            // SPLASH SCREEN LOGIC
             LaunchedEffect(Unit) {
                 if (app.appOpenAdManager.isInitialLaunch) {
                     val startTime = System.currentTimeMillis()
-                    // Wait up to 3 seconds for the ad to download
-                    while (!app.appOpenAdManager.isAdAvailable() && System.currentTimeMillis() - startTime < 3000) {
+                    
+                    // Logic Fix: Wait UNLESS the ad explicitly fails or succeeds
+                    while (!app.appOpenAdManager.isAdAvailable() && 
+                           !app.appOpenAdManager.isAdFailed && 
+                           System.currentTimeMillis() - startTime < 3000) {
                         delay(100)
                     }
                     
@@ -215,7 +221,6 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!isAppReady) {
-                // The Visual Splash Screen
                 Box(modifier = Modifier.fillMaxSize().background(Color(0xFF020617)), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PRO OVERLAY STUDIO", color = Color(0xFF38BDF8), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
@@ -356,21 +361,16 @@ fun decodeUri(context: Context, uri: Uri): Bitmap? {
 suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, s: Float, r: Float, a: Float, baseRot: Float, name: String, format: String, quality: Float): Boolean {
     return withContext(Dispatchers.IO) {
         try {
-            // 1. Properly rotate the base image
             val matrixBase = Matrix().apply { postRotate(baseRot) }
             val finalBase = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrixBase, true)
             
-            // 2. Create the final drawing canvas (Same size as finalBase)
             val result = Bitmap.createBitmap(finalBase.width, finalBase.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(result)
             
-            // 3. Fill with white ONLY if JPG to prevent transparent areas turning black
             if (format == "JPG") canvas.drawColor(android.graphics.Color.WHITE)
             
-            // 4. DRAW THE SUBJECT IMAGE (This was missing before!)
             canvas.drawBitmap(finalBase, 0f, 0f, null)
 
-            // 5. Draw the overlay
             val paint = Paint().apply { alpha = (a * 255).toInt(); isFilterBitmap = true }
             val matrixOverlay = Matrix().apply {
                 postTranslate(-overlay.width / 2f, -overlay.height / 2f)
@@ -407,7 +407,7 @@ suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x:
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Applying Final Fixes: Splash Screen & Canvas Rendering...")
+    print("🎨 Applying Final Fixes: Splash Screen Fast-Fail & Canvas Rendering...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
