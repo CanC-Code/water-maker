@@ -3,7 +3,7 @@ import os
 def generate_ui():
     package_path = "app/src/main/java/com/watermarker"
     
-    # --- 1. Application Class (Initializes AdMob safely on startup) ---
+    # --- 1. Application Class ---
     app_class_content = """package com.watermarker
 
 import android.app.Application
@@ -14,7 +14,6 @@ class WaterMarkerApp : Application() {
     
     override fun onCreate() {
         super.onCreate()
-        // Initialize AdMob safely
         MobileAds.initialize(this) {}
         appOpenAdManager = AppOpenAdManager(this)
         appOpenAdManager.loadAd()
@@ -38,7 +37,6 @@ class AppOpenAdManager(private val context: Context) {
         if (isLoadingAd || appOpenAd != null) return
         isLoadingAd = true
         
-        // Test Ad Unit ID
         val adUnitId = "ca-app-pub-3940256099942544/3419835294"
         val request = AdRequest.Builder().build()
         
@@ -58,21 +56,18 @@ class AppOpenAdManager(private val context: Context) {
 }
 """
 
-    # --- 3. Native Engine Wrapper (Crucial: Loads the C++ Library) ---
+    # --- 3. Native Engine Wrapper ---
     engine_content = """package com.watermarker
 
 class NativeEngine {
-    // Loads the C++ library outputted by CMake. Prevents UnsatisfiedLinkError crash!
     init {
         System.loadLibrary("watermarker")
     }
-
-    // JNI Native methods
     external fun processWatermark(baseImagePath: String, overlayImagePath: String, outputPath: String, quality: Int): Boolean
 }
 """
 
-    # --- 4. Main Activity & Compose UI (From previous fix) ---
+    # --- 4. Main Activity & Compose UI ---
     main_activity_content = r"""package com.watermarker
 
 import android.content.Context
@@ -85,6 +80,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -94,21 +91,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.*
 
-// Custom Color Wheel Component
 @Composable
 fun ColorWheel(onColorSelected: (Color) -> Unit) {
     var currentPosition by remember { mutableStateOf(Offset.Unspecified) }
@@ -153,16 +153,26 @@ class MainActivity : ComponentActivity() {
                 var showMenu by remember { mutableStateOf(false) }
                 var baseImageUri by remember { mutableStateOf<Uri?>(null) }
                 var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
+                
                 var showTextDialog by remember { mutableStateOf(false) }
                 var overlayText by remember { mutableStateOf("") }
                 var overlayTextColor by remember { mutableStateOf(Color.Black) }
                 var customTypeface by remember { mutableStateOf<Typeface?>(null) }
+                
                 var exportQuality by remember { mutableStateOf(100f) }
                 var outputFormat by remember { mutableStateOf("JPEG") }
                 
+                // Overlay drag offsets
+                var overlayOffsetX by remember { mutableStateOf(0f) }
+                var overlayOffsetY by remember { mutableStateOf(0f) }
+                
                 val context = LocalContext.current
                 val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri }
-                val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> overlayImageUri = uri }
+                val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> 
+                    overlayImageUri = uri
+                    overlayOffsetX = 0f
+                    overlayOffsetY = 0f
+                }
                 val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                     uri?.let {
                         try {
@@ -215,6 +225,8 @@ class MainActivity : ComponentActivity() {
                                             val tempFile = File(context.cacheDir, "text_overlay.png")
                                             FileOutputStream(tempFile).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                             overlayImageUri = Uri.fromFile(tempFile)
+                                            overlayOffsetX = 0f
+                                            overlayOffsetY = 0f
                                             Toast.makeText(context, "Text overlay generated!", Toast.LENGTH_SHORT).show()
                                         }
                                     }) { Text("Apply Text Overlay") }
@@ -222,11 +234,50 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        // --- PREVIEW CANVAS WORK AREA ---
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f) // Takes up remaining middle space
+                                .background(Color(0xFFE0E0E0)) // Light gray background
+                                .clipToBounds()
+                        ) {
+                            val baseBitmap = remember(baseImageUri) { loadBitmapFromUri(context, baseImageUri) }
+                            val overlayBitmap = remember(overlayImageUri) { loadBitmapFromUri(context, overlayImageUri) }
+
+                            if (baseBitmap != null) {
+                                Image(
+                                    bitmap = baseBitmap,
+                                    contentDescription = "Base Image",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit
+                                )
+                            } else {
+                                Text(
+                                    "Load a base image from the menu",
+                                    modifier = Modifier.align(Alignment.Center),
+                                    color = Color.Gray
+                                )
+                            }
+
+                            if (overlayBitmap != null) {
+                                Image(
+                                    bitmap = overlayBitmap,
+                                    contentDescription = "Overlay Image",
+                                    modifier = Modifier
+                                        .offset { IntOffset(overlayOffsetX.roundToInt(), overlayOffsetY.roundToInt()) }
+                                        .pointerInput(Unit) {
+                                            detectDragGestures { change, dragAmount ->
+                                                change.consume()
+                                                overlayOffsetX += dragAmount.x
+                                                overlayOffsetY += dragAmount.y
+                                            }
+                                        }
+                                )
+                            }
+                        }
+                        
                         Spacer(modifier = Modifier.height(20.dp))
-                        Text("Base Image Selected: ${baseImageUri != null}", fontSize = 14.sp)
-                        Text("Overlay Selected: ${overlayImageUri != null}", fontSize = 14.sp)
-                        Text("Custom Font Loaded: ${customTypeface != null}", fontSize = 14.sp)
-                        Spacer(modifier = Modifier.height(30.dp))
                         Text("Export Quality: ${exportQuality.toInt()}%")
                         Slider(value = exportQuality, onValueChange = { exportQuality = it }, valueRange = 10f..100f, enabled = outputFormat != "PNG")
                         Spacer(modifier = Modifier.height(10.dp))
@@ -240,7 +291,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = { Toast.makeText(context, "Ready for Native Engine...", Toast.LENGTH_SHORT).show() },
                             modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -251,6 +302,18 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    // Helper to safely load standard image Uris into Compose ImageBitmaps
+    private fun loadBitmapFromUri(context: Context, uri: Uri?): ImageBitmap? {
+        if (uri == null) return null
+        return try {
+            val stream = context.contentResolver.openInputStream(uri)
+            BitmapFactory.decodeStream(stream)?.asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // Renders custom text and fonts into a PNG for overlay
     private fun createTextBitmap(text: String, color: Int, typeface: Typeface?): Bitmap {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color
@@ -278,12 +341,12 @@ class MainActivity : ComponentActivity() {
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Generating Kotlin structure: App, Native wrapper, AdManager, and MainActivity...")
+    print("🎨 Generating UI with Canvas Preview and Drag Alignment...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Kotlin generation complete.")
+    print("✅ Complete: You will now see your images in the middle of the screen.")
 
 if __name__ == "__main__":
     generate_ui()
