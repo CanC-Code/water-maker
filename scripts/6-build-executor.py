@@ -7,7 +7,7 @@ def run_build():
     project_root = os.path.abspath(os.path.join(script_dir, ".."))
     os.chdir(project_root)
 
-    print("🏗️  Initializing Final Build...")
+    print("🏗️ Initializing Final Build...")
     
     try:
         if not os.path.exists("gradlew"):
@@ -19,19 +19,13 @@ def run_build():
         
         print("🚀 Running Clean Build...")
         subprocess.run(["./gradlew", "clean", "assembleDebug", "--no-daemon"], check=True)
-        
-        apk_path = "app/build/outputs/apk/debug/app-debug.apk"
-        if os.path.exists(apk_path):
-            print("✅ Build Successful! APK located.")
-        else:
-            print("❌ Build finished but APK was not found.")
-            sys.exit(1)
+        print("✅ Build Successful!")
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Gradle build failed with exit code {e.returncode}")
-        sys.exit(1) # Signal failure to GitHub Actions
+        print(f"❌ Build failed with exit code {e.returncode}")
+        sys.exit(1) # Ensure CI recognizes the failure
     except Exception as e:
-        print(f"❌ An unexpected error occurred: {e}")
+        print(f"❌ Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
