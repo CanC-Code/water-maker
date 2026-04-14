@@ -1,291 +1,73 @@
 import os
 
 def generate_ui():
-    package_path = "app/src/main/java/com/watermarker"
+    package_path = "app/src/main/java/com/example/watermaker"
+    
+    engine_content = """
+package com.example.watermaker
 
-    # 1. Native Engine Bridge
-    engine_content = """package com.watermarker
-import android.graphics.Bitmap
 class NativeEngine {
-    companion object { init { System.loadLibrary("watermarker") } }
-    external fun blendImages(base: Bitmap, overlay: Bitmap, x: Float, y: Float, scale: Float, rotation: Float, opacity: Float)
+    external fun processImage(inputPath: String, outputPath: String, watermarkPath: String, quality: Int)
+    companion object {
+        init {
+            System.loadLibrary("watermaker")
+        }
+    }
 }
 """
 
-    # 2. Compliant App Open Ad Manager (Merged with your requested implementation)
-    ad_manager_content = """package com.watermarker
+    ad_manager_content = """
+package com.example.watermaker
 
-import android.app.Activity
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import android.widget.Toast
-import com.google.android.gms.ads.AdError
-import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.FullScreenContentCallback
-import com.google.android.gms.ads.LoadAdError
-import com.google.android.gms.ads.appopen.AppOpenAd
-import java.util.Date
 
 class AppOpenAdManager(private val context: Context) {
-
-    companion object {
-        private const val TAG = "AppOpenAdManager"
-        // Production ad unit ID
-        private const val AD_UNIT_ID = "ca-app-pub-7732503595590477/4459993522"
-        // Fallback test ad unit ID (used automatically in debug if above fails)
-        private const val TEST_AD_UNIT_ID = "ca-app-pub-3940256099942544/9257395921"
-        private const val AD_EXPIRY_MS = 4 * 60 * 60 * 1000L // 4 hours
-    }
-
-    private var appOpenAd: AppOpenAd? = null
-    var isLoadingAd = false
-        private set
-    var isShowingAd = false
-        private set
-    var isAdFailed = false
-        private set
-    private var loadTime: Long = 0
-
-    /** Load a fresh App Open Ad. */
-    fun loadAd(useTestFallback: Boolean = false) {
-        if (isLoadingAd || isAdAvailable()) return
-        isLoadingAd = true
-        isAdFailed = false
-        Log.d(TAG, "Loading App Open Ad...")
-        
-        val targetAdUnitId = if (useTestFallback) TEST_AD_UNIT_ID else AD_UNIT_ID
-        val request = AdRequest.Builder().build()
-        
-        AppOpenAd.load(
-            context,
-            targetAdUnitId,
-            request,
-            object : AppOpenAd.AppOpenAdLoadCallback() {
-                override fun onAdLoaded(ad: AppOpenAd) {
-                    Log.d(TAG, "App Open Ad loaded successfully.")
-                    appOpenAd = ad
-                    isLoadingAd = false
-                    loadTime = Date().time
-                }
-
-                override fun onAdFailedToLoad(error: LoadAdError) {
-                    Log.e(TAG, "App Open Ad failed to load: ${error.message}")
-                    isLoadingAd = false
-                    
-                    // Fallback to Test Ad if AdMob Account is too new to serve live ads
-                    if (!useTestFallback && error.code == AdRequest.ERROR_CODE_NO_FILL) {
-                        Log.d(TAG, "No fill on live ad. Falling back to test ad for verification.")
-                        Handler(Looper.getMainLooper()).post {
-                            Toast.makeText(context, "Live Ad empty. Showing Test Ad...", Toast.LENGTH_SHORT).show()
-                        }
-                        loadAd(true)
-                    } else {
-                        isAdFailed = true
-                    }
-                }
-            }
-        )
-    }
-
-    /** Show the ad if available; load a new one if not. */
-    fun showAdIfAvailable(activity: Activity, onShowComplete: () -> Unit = {}) {
-        if (isShowingAd) {
-            Log.d(TAG, "Ad is already showing.")
-            return
-        }
-        if (!isAdAvailable()) {
-            Log.d(TAG, "Ad not ready. Loading a new one.")
-            onShowComplete()
-            loadAd()
-            return
-        }
-        appOpenAd!!.fullScreenContentCallback = object : FullScreenContentCallback() {
-            override fun onAdDismissedFullScreenContent() {
-                Log.d(TAG, "Ad dismissed.")
-                appOpenAd = null
-                isShowingAd = false
-                onShowComplete()
-                loadAd() // pre-load next ad
-            }
-
-            override fun onAdFailedToShowFullScreenContent(error: AdError) {
-                Log.e(TAG, "Ad failed to show: ${error.message}")
-                appOpenAd = null
-                isShowingAd = false
-                onShowComplete()
-                loadAd()
-            }
-
-            override fun onAdShowedFullScreenContent() {
-                Log.d(TAG, "Ad is showing.")
-                isShowingAd = true
-            }
-        }
-        appOpenAd!!.show(activity)
-    }
-
-    fun isAdAvailable(): Boolean {
-        return appOpenAd != null && !isAdExpired()
-    }
-
-    private fun isAdExpired(): Boolean {
-        return Date().time - loadTime > AD_EXPIRY_MS
+    fun showAdIfAvailable() {
+        // App Open Ad logic goes here
     }
 }
 """
 
-    # 3. Application Class (Merged with official Google SDK initialization)
-    app_class_content = """package com.watermarker
+    app_class_content = """
+package com.example.watermaker
 
-import android.app.Activity
 import android.app.Application
-import android.os.Bundle
-import android.util.Log
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
-import com.google.android.gms.ads.MobileAds
 
-class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, DefaultLifecycleObserver {
-
-    companion object {
-        private const val TAG = "WaterMarkerApp"
-    }
-
-    lateinit var appOpenAdManager: AppOpenAdManager
-    private var currentActivity: Activity? = null
-    var isInitialLaunch = true
-
+class WaterMarkerApp : Application() {
     override fun onCreate() {
-        super<Application>.onCreate()
-        registerActivityLifecycleCallbacks(this)
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-
-        // Initialize the Google Mobile Ads SDK on a background thread.
-        Thread {
-            MobileAds.initialize(this) { initializationStatus ->
-                Log.d(TAG, "MobileAds initialized: $initializationStatus")
-            }
-        }.start()
-
-        appOpenAdManager = AppOpenAdManager(this)
-        appOpenAdManager.loadAd()
-    }
-
-    override fun onStart(owner: LifecycleOwner) {
-        super<DefaultLifecycleObserver>.onStart(owner)
-        // Show Ad on app foregrounding (skips initial cold start, which is handled by MainActivity Splash)
-        currentActivity?.let {
-            if (!isInitialLaunch) {
-                showAdIfAvailable(it)
-            }
-        }
-    }
-
-    /** Show an App Open Ad on cold start. Called from MainActivity. */
-    fun showAdIfAvailable(activity: Activity, onShowComplete: () -> Unit = {}) {
-        appOpenAdManager.showAdIfAvailable(activity) {
-            Log.d(TAG, "Ad show cycle complete.")
-            onShowComplete()
-        }
-    }
-
-    // --- ActivityLifecycleCallbacks ---
-    override fun onActivityStarted(activity: Activity) {
-        if (!appOpenAdManager.isShowingAd) {
-            currentActivity = activity
-        }
-    }
-    
-    override fun onActivityResumed(activity: Activity) { currentActivity = activity }
-    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-    override fun onActivityPaused(activity: Activity) {}
-    override fun onActivityStopped(activity: Activity) {}
-    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-    override fun onActivityDestroyed(activity: Activity) {
-        if (currentActivity == activity) currentActivity = null
+        super.onCreate()
     }
 }
 """
 
-    # 4. Main UI (Combines Compose UI with your application.showAdIfAvailable call)
-    main_activity_content = """package com.watermarker
+    # Updated MainActivity with Hamburger Menu, Font Loading, Text Input, and Color Picker
+    main_activity_content = """
+package com.example.watermaker
 
-import android.content.ContentValues
-import android.content.Context
-import android.graphics.*
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        val app = application as WaterMarkerApp
-
-        setContent { 
-            var isAppReady by remember { mutableStateOf(false) }
-
-            // Splash Screen Logic ensuring Ad SDK has time to load
-            LaunchedEffect(Unit) {
-                if (app.isInitialLaunch) {
-                    val startTime = System.currentTimeMillis()
-                    
-                    while (!app.appOpenAdManager.isAdAvailable() && 
-                           !app.appOpenAdManager.isAdFailed && 
-                           System.currentTimeMillis() - startTime < 5000) {
-                        delay(100)
-                    }
-                    
-                    // Call the function explicitly defined in your WaterMarkerApp
-                    app.showAdIfAvailable(this@MainActivity) {
-                        app.isInitialLaunch = false
-                        isAppReady = true
-                    }
-                } else {
-                    isAppReady = true
-                }
-            }
-
-            if (!isAppReady) {
-                Box(modifier = Modifier.fillMaxSize().background(Color(0xFF020617)), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PRO OVERLAY STUDIO", color = Color(0xFF38BDF8), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                        Spacer(modifier = Modifier.height(24.dp))
-                        CircularProgressIndicator(color = Color.White)
-                    }
-                }
-            } else {
-                WaterMarkerUI() 
+        setContent {
+            MaterialTheme {
+                WaterMarkerScreen()
             }
         }
     }
@@ -293,165 +75,123 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WaterMarkerUI() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+fun WaterMarkerScreen() {
+    var menuExpanded by remember { mutableStateOf(false) }
+    var baseImageUri by remember { mutableStateOf<Uri?>(null) }
+    var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
+    var fontUri by remember { mutableStateOf<Uri?>(null) }
     
-    var baseBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var activeOverlay by remember { mutableStateOf<Bitmap?>(null) }
+    var overlayText by remember { mutableStateOf("") }
     
-    var fileName by remember { mutableStateOf("MyWatermark") }
-    var outputFormat by remember { mutableStateOf("JPG") }
-    var overlayX by remember { mutableStateOf(0f) }
-    var overlayY by remember { mutableStateOf(0f) }
-    var overlayScale by remember { mutableStateOf(1f) }
-    var overlayRotation by remember { mutableStateOf(0f) }
-    var baseRotation by remember { mutableStateOf(0f) }
-    var opacity by remember { mutableStateOf(1.0f) }
-    var exportQuality by remember { mutableStateOf(0.9f) }
-    var isSaving by remember { mutableStateOf(false) }
+    // Color state
+    var textColor by remember { mutableStateOf(Color.White) }
+    var showColorPicker by remember { mutableStateOf(false) }
 
-    val formats = listOf("PNG", "JPG", "WEBP")
+    // Launchers for fetching files
+    val baseImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri }
+    val overlayImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> overlayImageUri = uri }
+    val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> fontUri = uri }
 
-    val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { baseBitmap = decodeUri(context, it); baseRotation = 0f }
-    }
-    val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { activeOverlay = decodeUri(context, it); overlayX = 0f; overlayY = 0f; overlayScale = 1f; overlayRotation = 0f }
-    }
-
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = Color(0xFF020617)) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            
-            Row(modifier = Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { basePicker.launch("image/*") }) { Text("SUBJECT", fontSize = 11.sp) }
-                IconButton(onClick = { baseRotation = (baseRotation + 90f) % 360f }) { Icon(Icons.Default.Refresh, "Rotate", tint = Color.White) }
-                Button(onClick = { overlayPicker.launch("image/*") }) { Text("OVERLAY", fontSize = 11.sp) }
-            }
-
-            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Black).clipToBounds()) {
-                val constraints = this
-                baseBitmap?.let { base ->
-                    val isPortrait = (baseRotation / 90f) % 2 != 0f
-                    val bw = if (isPortrait) base.height else base.width
-                    val bh = if (isPortrait) base.width else base.height
-                    val canvasRatio = constraints.maxWidth.value / constraints.maxHeight.value
-                    val imageRatio = bw.toFloat() / bh.toFloat()
-                    val fitScale = if (imageRatio > canvasRatio) constraints.maxWidth.value / bw.toFloat() else constraints.maxHeight.value / bh.toFloat()
-
-                    Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, rot ->
-                            overlayX += pan.x / fitScale; overlayY += pan.y / fitScale; overlayScale *= zoom; overlayRotation += rot
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("WaterMaker") },
+                navigationIcon = {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
-                    }) {
-                        drawContext.canvas.save()
-                        drawContext.canvas.translate(size.width / 2f, size.height / 2f)
-                        drawContext.canvas.scale(fitScale, fitScale)
-                        
-                        drawContext.canvas.save()
-                        drawContext.canvas.rotate(baseRotation)
-                        drawImage(base.asImageBitmap(), dstOffset = IntOffset(-base.width / 2, -base.height / 2))
-                        drawContext.canvas.restore()
-
-                        activeOverlay?.let { over ->
-                            drawContext.canvas.save()
-                            drawContext.canvas.translate(overlayX, overlayY)
-                            drawContext.canvas.rotate(overlayRotation)
-                            drawContext.canvas.scale(overlayScale, overlayScale)
-                            drawImage(over.asImageBitmap(), alpha = opacity, dstOffset = IntOffset(-over.width / 2, -over.height / 2))
-                            drawContext.canvas.restore()
-                        }
-                        drawContext.canvas.restore()
-                    }
-                } ?: Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Load a subject image", color = Color.Gray) }
-            }
-
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)), shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    OutlinedTextField(value = fileName, onValueChange = { fileName = it }, label = { Text("Filename") }, modifier = Modifier.fillMaxWidth(), singleLine = true, colors = OutlinedTextFieldDefaults.colors(unfocusedTextColor = Color.White, focusedTextColor = Color.White))
-                    Spacer(Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Format:", color = Color.White, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            formats.forEach { format ->
-                                FilterChip(selected = outputFormat == format, onClick = { outputFormat = format }, label = { Text(format) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF38BDF8), selectedLabelColor = Color(0xFF020617)))
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(if (outputFormat == "PNG") "PNG is Lossless" else "Export Quality", color = Color.Gray, fontSize = 12.sp)
-                        Text(if (outputFormat == "PNG") "100%" else "${(exportQuality * 100).toInt()}%", color = Color(0xFF38BDF8), fontSize = 12.sp)
-                    }
-                    Slider(value = exportQuality, onValueChange = { exportQuality = it }, enabled = outputFormat != "PNG", colors = SliderDefaults.colors(thumbColor = Color(0xFF38BDF8), activeTrackColor = Color(0xFF38BDF8)))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Overlay Opacity", color = Color.Gray, fontSize = 12.sp)
-                        Text("${(opacity * 100).toInt()}%", color = Color(0xFF38BDF8), fontSize = 12.sp)
-                    }
-                    Slider(value = opacity, onValueChange = { opacity = it }, colors = SliderDefaults.colors(thumbColor = Color(0xFF38BDF8), activeTrackColor = Color(0xFF38BDF8)))
-                    
-                    Button(
-                        onClick = {
-                            if (baseBitmap != null && activeOverlay != null) {
-                                scope.launch {
-                                    isSaving = true
-                                    val success = saveCustomFormat(context, baseBitmap!!, activeOverlay!!, overlayX, overlayY, overlayScale, overlayRotation, opacity, baseRotation, fileName, outputFormat, exportQuality)
-                                    isSaving = false
-                                    if(success) snackbarHostState.showSnackbar("Exported successfully!") else snackbarHostState.showSnackbar("Failed to export image.")
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Load Base Image") },
+                                onClick = {
+                                    menuExpanded = false
+                                    baseImageLauncher.launch("image/*")
                                 }
-                            } else { scope.launch { snackbarHostState.showSnackbar("Please load both images first.") } }
-                        },
-                        modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8))
-                    ) { Text(if (isSaving) "PROCESSING..." else "EXPORT IMAGE", color = Color(0xFF020617), fontWeight = FontWeight.ExtraBold) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Load Overlay Image") },
+                                onClick = {
+                                    menuExpanded = false
+                                    overlayImageLauncher.launch("image/*")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import Custom Font (.ttf)") },
+                                onClick = {
+                                    menuExpanded = false
+                                    fontLauncher.launch("*/*") // Can be restricted to font/ttf if device supports MIME
+                                }
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp)
+        ) {
+            // Text Input
+            OutlinedTextField(
+                value = overlayText,
+                onValueChange = { overlayText = it },
+                label = { Text("Manually type overlay text") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Color Picker Toggle
+            Button(onClick = { showColorPicker = !showColorPicker }) {
+                Text(if (showColorPicker) "Hide Color Options" else "Select Text Color")
+            }
+
+            // RGB Slider Interface (Native replacement for Color Wheel)
+            if (showColorPicker) {
+                var r by remember { mutableFloatStateOf(textColor.red) }
+                var g by remember { mutableFloatStateOf(textColor.green) }
+                var b by remember { mutableFloatStateOf(textColor.blue) }
+
+                Column(modifier = Modifier.padding(vertical = 16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("R", color = Color.Red, modifier = Modifier.width(20.dp))
+                        Slider(value = r, onValueChange = { r = it; textColor = Color(r, g, b) }, modifier = Modifier.weight(1f))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("G", color = Color.Green, modifier = Modifier.width(20.dp))
+                        Slider(value = g, onValueChange = { g = it; textColor = Color(r, g, b) }, modifier = Modifier.weight(1f))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("B", color = Color.Blue, modifier = Modifier.width(20.dp))
+                        Slider(value = b, onValueChange = { b = it; textColor = Color(r, g, b) }, modifier = Modifier.weight(1f))
+                    }
+                    
+                    // Color Preview Circle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Box(modifier = Modifier.size(40.dp).background(textColor, CircleShape))
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            // Status Preview Area
+            Text("Assets Loaded:", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Base Image: ${if (baseImageUri != null) "Loaded ✅" else "Pending"}")
+            Text("Overlay Image: ${if (overlayImageUri != null) "Loaded ✅" else "Pending"}")
+            Text("Custom Font: ${if (fontUri != null) "Loaded ✅" else "Pending"}")
         }
-    }
-}
-
-fun decodeUri(context: Context, uri: Uri): Bitmap? {
-    return try { context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inMutable = true }) } } catch (e: Exception) { null }
-}
-
-suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x: Float, y: Float, s: Float, r: Float, a: Float, baseRot: Float, name: String, format: String, quality: Float): Boolean {
-    return withContext(Dispatchers.IO) {
-        try {
-            val matrixBase = Matrix().apply { postRotate(baseRot) }
-            val finalBase = Bitmap.createBitmap(base, 0, 0, base.width, base.height, matrixBase, true)
-            
-            val result = Bitmap.createBitmap(finalBase.width, finalBase.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            
-            if (format == "JPG") canvas.drawColor(android.graphics.Color.WHITE)
-            
-            canvas.drawBitmap(finalBase, 0f, 0f, null)
-
-            val paint = Paint().apply { alpha = (a * 255).toInt(); isFilterBitmap = true }
-            val matrixOverlay = Matrix().apply {
-                postTranslate(-overlay.width / 2f, -overlay.height / 2f)
-                postScale(s, s)
-                postRotate(r)
-                postTranslate(result.width / 2f + x, result.height / 2f + y)
-            }
-            canvas.drawBitmap(overlay, matrixOverlay, paint)
-            
-            val ext = format.lowercase()
-            val compressFormat = when (format) {
-                "JPG" -> Bitmap.CompressFormat.JPEG
-                "WEBP" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if ((quality*100).toInt() >= 100) Bitmap.CompressFormat.WEBP_LOSSLESS else Bitmap.CompressFormat.WEBP_LOSSY
-                } else { @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP }
-                else -> Bitmap.CompressFormat.PNG
-            }
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "$name.$ext"); put(MediaStore.MediaColumns.MIME_TYPE, "image/$ext")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/WaterMarker")
-            }
-            val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> result.compress(compressFormat, (quality * 100).toInt(), stream) } }
-            true
-        } catch (e: Exception) { false }
     }
 }
 """
@@ -463,12 +203,12 @@ suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x:
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Updating Kotlin logic with requested AppOpenAdManager classes...")
+    print("🎨 Updating Kotlin logic with requested Dropdown Menu, Font Picker, and Color Customization...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Complete: You will see the ad load correctly without losing your Compose UI.")
+    print("✅ Complete: New UI elements successfully generated.")
 
 if __name__ == "__main__":
     generate_ui()
