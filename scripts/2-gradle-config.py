@@ -29,8 +29,8 @@ android {
         applicationId "com.watermarker"
         minSdk 24
         targetSdk 35
-        versionCode 7
-        versionName "1.6"
+        versionCode 8
+        versionName "1.7"
         externalNativeBuild { cmake { cppFlags "" } }
     }
     buildFeatures { compose true }
@@ -52,15 +52,15 @@ dependencies {
 }
 """
 
-    settings_gradle = """
-rootProject.name = "WaterMarker"
-include ':app'
-"""
-
     gradle_properties = """
 android.useAndroidX=true
 android.enableJetifier=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+"""
+
+    settings_gradle = """
+rootProject.name = "WaterMarker"
+include ':app'
 """
 
     files = {
@@ -74,7 +74,7 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Gradle configured for API 35 (Version 7).")
+    print("✅ Gradle configured for API 35.")
 
 if __name__ == "__main__":
     generate_gradle_files()
