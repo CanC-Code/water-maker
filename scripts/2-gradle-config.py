@@ -29,8 +29,8 @@ android {
         applicationId "com.watermarker"
         minSdk 24
         targetSdk 35
-        versionCode 10
-        versionName "1.9"
+        versionCode 11
+        versionName "2.0"
         externalNativeBuild { cmake { cppFlags "" } }
     }
     buildFeatures { compose true }
@@ -49,6 +49,9 @@ dependencies {
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.material3:material3'
     implementation 'com.google.android.material:material:1.12.0'
+    
+    // AdMob SDK
+    implementation 'com.google.android.gms:play-services-ads:23.1.0'
 }
 """
 
@@ -74,7 +77,7 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Gradle configured for V10 (API 35).")
+    print("✅ Gradle updated with AdMob SDK.")
 
 if __name__ == "__main__":
     generate_gradle_files()
