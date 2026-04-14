@@ -24,6 +24,7 @@ def generate_resources():
 <resources>
     <color name="purple_500">#FF6200EE</color>
     <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
 </resources>
 """
 
@@ -46,7 +47,7 @@ def generate_resources():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Resources and Manifest updated.")
+    print("✅ Resources and Manifest complete.")
 
 if __name__ == "__main__":
     generate_resources()
