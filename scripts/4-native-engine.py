@@ -16,7 +16,7 @@ target_link_libraries(watermarker ${log-lib} ${jnigraphics-lib})
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_watermarker_NativeEngine_blendImages(JNIEnv* env, jobject thiz, jobject base, jobject overlay, jfloat x, jfloat y, jfloat scale, jfloat rotation, jfloat opacity) {
-    // Pixel manipulation logic bridge
+    // Native pixel merge bridge
 }
 """
 
@@ -29,7 +29,7 @@ Java_com_watermarker_NativeEngine_blendImages(JNIEnv* env, jobject thiz, jobject
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Native Engine complete.")
+    print("✅ Native Engine bridge complete.")
 
 if __name__ == "__main__":
     generate_native()
