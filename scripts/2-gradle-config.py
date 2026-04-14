@@ -29,8 +29,8 @@ android {
         applicationId "com.watermarker"
         minSdk 24
         targetSdk 35
-        versionCode 9
-        versionName "1.8"
+        versionCode 10
+        versionName "1.9"
         externalNativeBuild { cmake { cppFlags "" } }
     }
     buildFeatures { compose true }
@@ -74,7 +74,7 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Gradle configured for API 35.")
+    print("✅ Gradle configured for V10 (API 35).")
 
 if __name__ == "__main__":
     generate_gradle_files()
