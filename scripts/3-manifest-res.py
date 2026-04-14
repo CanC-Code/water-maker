@@ -10,7 +10,8 @@ def generate_resources():
         android:allowBackup="true">
         <activity 
             android:name="com.watermarker.MainActivity" 
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -20,34 +21,26 @@ def generate_resources():
 </manifest>
 """
 
-    colors = """<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-</resources>
-"""
-
     themes = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.WaterMarker" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="android:statusBarColor">@color/black</item>
+        <item name="colorPrimary">#38BDF8</item>
+        <item name="android:statusBarColor">#020617</item>
     </style>
 </resources>
 """
 
     files = {
         "app/src/main/AndroidManifest.xml": manifest.strip(),
-        "app/src/main/res/values/colors.xml": colors.strip(),
-        "app/src/main/res/values/themes.xml": themes.strip()
+        "app/src/main/res/values/themes.xml": themes.strip(),
+        "app/src/main/res/values/colors.xml": "<resources><color name='black'>#000000</color></resources>"
     }
 
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Resources and Manifest complete.")
+    print("✅ Manifest and Themes complete.")
 
 if __name__ == "__main__":
     generate_resources()
