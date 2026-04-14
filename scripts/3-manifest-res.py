@@ -4,8 +4,6 @@ def generate_manifest_and_res():
     manifest_path = "app/src/main/AndroidManifest.xml"
     res_dir = "app/src/main/res"
     
-    # 1. Generate AndroidManifest.xml
-    # Removed deprecated package attribute and missing mipmap icon references
     manifest_content = """<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -14,6 +12,7 @@ def generate_manifest_and_res():
     
     <application
         android:name=".WaterMarkerApp"
+        android:largeHeap="true"
         android:allowBackup="true"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -36,19 +35,8 @@ def generate_manifest_and_res():
 </manifest>
 """
 
-    # 2. Generate basic string resources
-    strings_content = """<resources>
-    <string name="app_name">WaterMaker</string>
-</resources>
-"""
-
-    # 3. Generate basic theme resource
-    themes_content = """<resources>
-    <style name="Theme.WaterMarker" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#38BDF8</item>
-    </style>
-</resources>
-"""
+    strings_content = """<resources>\n    <string name="app_name">WaterMaker</string>\n</resources>"""
+    themes_content = """<resources>\n    <style name="Theme.WaterMarker" parent="android:Theme.Material.Light.NoActionBar">\n        <item name="android:statusBarColor">#38BDF8</item>\n    </style>\n</resources>"""
 
     files = {
         manifest_path: manifest_content.strip(),
@@ -56,12 +44,11 @@ def generate_manifest_and_res():
         f"{res_dir}/values/themes.xml": themes_content.strip(),
     }
 
-    print("📄 Generating fixed AndroidManifest.xml without missing icon references...")
+    print("📄 Generating Manifest with Large Heap enabled...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Manifest setup complete.")
 
 if __name__ == "__main__":
     generate_manifest_and_res()
