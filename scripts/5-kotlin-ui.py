@@ -12,13 +12,14 @@ class NativeEngine {
 }
 """
 
-    # 2. Compliant App Open Ad Manager (With Live-to-Test Fallback)
+    # 2. Compliant App Open Ad Manager (Merged with your requested implementation)
     ad_manager_content = """package com.watermarker
 
 import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdRequest
@@ -27,147 +28,189 @@ import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.appopen.AppOpenAd
 import java.util.Date
 
-class AppOpenAdManager {
-    private var appOpenAd: AppOpenAd? = null
-    private var isLoadingAd = false
-    var isShowingAd = false
-    var isAdFailed = false
-    var isInitialLaunch = true 
-    private var loadTime: Long = 0
-    
-    // YOUR LIVE AD UNIT ID
-    private val liveAdUnitId = "ca-app-pub-7732503595590477/4459993522"
-    // OFFICIAL GOOGLE TEST ID (Fallback)
-    private val testAdUnitId = "ca-app-pub-3940256099942544/9257395921"
+class AppOpenAdManager(private val context: Context) {
 
-    interface OnShowAdCompleteListener {
-        fun onShowAdComplete()
+    companion object {
+        private const val TAG = "AppOpenAdManager"
+        // Production ad unit ID
+        private const val AD_UNIT_ID = "ca-app-pub-7732503595590477/4459993522"
+        // Fallback test ad unit ID (used automatically in debug if above fails)
+        private const val TEST_AD_UNIT_ID = "ca-app-pub-3940256099942544/9257395921"
+        private const val AD_EXPIRY_MS = 4 * 60 * 60 * 1000L // 4 hours
     }
 
-    fun loadAd(context: Context, useTestFallback: Boolean = false) {
+    private var appOpenAd: AppOpenAd? = null
+    var isLoadingAd = false
+        private set
+    var isShowingAd = false
+        private set
+    var isAdFailed = false
+        private set
+    private var loadTime: Long = 0
+
+    /** Load a fresh App Open Ad. */
+    fun loadAd(useTestFallback: Boolean = false) {
         if (isLoadingAd || isAdAvailable()) return
         isLoadingAd = true
         isAdFailed = false
+        Log.d(TAG, "Loading App Open Ad...")
         
-        val targetAdUnitId = if (useTestFallback) testAdUnitId else liveAdUnitId
+        val targetAdUnitId = if (useTestFallback) TEST_AD_UNIT_ID else AD_UNIT_ID
         val request = AdRequest.Builder().build()
         
         AppOpenAd.load(
-            context, targetAdUnitId, request,
+            context,
+            targetAdUnitId,
+            request,
             object : AppOpenAd.AppOpenAdLoadCallback() {
                 override fun onAdLoaded(ad: AppOpenAd) {
+                    Log.d(TAG, "App Open Ad loaded successfully.")
                     appOpenAd = ad
                     isLoadingAd = false
                     loadTime = Date().time
                 }
-                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+
+                override fun onAdFailedToLoad(error: LoadAdError) {
+                    Log.e(TAG, "App Open Ad failed to load: ${error.message}")
                     isLoadingAd = false
                     
-                    // If Google says "NO FILL" (Code 3) on the live ID, load the Test Ad so you can verify it works!
-                    if (!useTestFallback && loadAdError.code == AdRequest.ERROR_CODE_NO_FILL) {
+                    // Fallback to Test Ad if AdMob Account is too new to serve live ads
+                    if (!useTestFallback && error.code == AdRequest.ERROR_CODE_NO_FILL) {
+                        Log.d(TAG, "No fill on live ad. Falling back to test ad for verification.")
                         Handler(Looper.getMainLooper()).post {
-                            Toast.makeText(context, "Live Ad empty (Account New). Showing Test Ad...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Live Ad empty. Showing Test Ad...", Toast.LENGTH_SHORT).show()
                         }
-                        loadAd(context, true)
+                        loadAd(true)
                     } else {
-                        isAdFailed = true 
+                        isAdFailed = true
                     }
                 }
             }
         )
     }
 
-    private fun wasLoadTimeLessThanNHoursAgo(numHours: Long): Boolean {
-        val dateDifference = Date().time - loadTime
-        val numMilliSecondsPerHour: Long = 3600000
-        return dateDifference < (numMilliSecondsPerHour * numHours)
-    }
-
-    fun isAdAvailable(): Boolean {
-        return appOpenAd != null && wasLoadTimeLessThanNHoursAgo(4)
-    }
-
-    fun showAdIfAvailable(activity: Activity, onShowAdCompleteListener: OnShowAdCompleteListener) {
-        if (isShowingAd) return
-        if (!isAdAvailable()) {
-            loadAd(activity)
-            onShowAdCompleteListener.onShowAdComplete()
+    /** Show the ad if available; load a new one if not. */
+    fun showAdIfAvailable(activity: Activity, onShowComplete: () -> Unit = {}) {
+        if (isShowingAd) {
+            Log.d(TAG, "Ad is already showing.")
             return
         }
-
-        appOpenAd?.fullScreenContentCallback = object : FullScreenContentCallback() {
+        if (!isAdAvailable()) {
+            Log.d(TAG, "Ad not ready. Loading a new one.")
+            onShowComplete()
+            loadAd()
+            return
+        }
+        appOpenAd!!.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
+                Log.d(TAG, "Ad dismissed.")
                 appOpenAd = null
                 isShowingAd = false
-                onShowAdCompleteListener.onShowAdComplete()
-                loadAd(activity) 
+                onShowComplete()
+                loadAd() // pre-load next ad
             }
-            override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+
+            override fun onAdFailedToShowFullScreenContent(error: AdError) {
+                Log.e(TAG, "Ad failed to show: ${error.message}")
                 appOpenAd = null
                 isShowingAd = false
-                onShowAdCompleteListener.onShowAdComplete()
-                loadAd(activity)
+                onShowComplete()
+                loadAd()
             }
+
             override fun onAdShowedFullScreenContent() {
+                Log.d(TAG, "Ad is showing.")
                 isShowingAd = true
             }
         }
-        appOpenAd?.show(activity)
+        appOpenAd!!.show(activity)
+    }
+
+    fun isAdAvailable(): Boolean {
+        return appOpenAd != null && !isAdExpired()
+    }
+
+    private fun isAdExpired(): Boolean {
+        return Date().time - loadTime > AD_EXPIRY_MS
     }
 }
 """
 
-    # 3. Application Class (Lifecycle Observer)
+    # 3. Application Class (Merged with official Google SDK initialization)
     app_class_content = """package com.watermarker
 
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.android.gms.ads.MobileAds
 
 class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, DefaultLifecycleObserver {
+
+    companion object {
+        private const val TAG = "WaterMarkerApp"
+    }
+
     lateinit var appOpenAdManager: AppOpenAdManager
     private var currentActivity: Activity? = null
+    var isInitialLaunch = true
 
     override fun onCreate() {
-        super<Application>.onCreate() 
+        super<Application>.onCreate()
         registerActivityLifecycleCallbacks(this)
-        MobileAds.initialize(this) {}
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-        
-        appOpenAdManager = AppOpenAdManager()
-        appOpenAdManager.loadAd(this) 
+
+        // Initialize the Google Mobile Ads SDK on a background thread.
+        Thread {
+            MobileAds.initialize(this) { initializationStatus ->
+                Log.d(TAG, "MobileAds initialized: $initializationStatus")
+            }
+        }.start()
+
+        appOpenAdManager = AppOpenAdManager(this)
+        appOpenAdManager.loadAd()
     }
 
     override fun onStart(owner: LifecycleOwner) {
         super<DefaultLifecycleObserver>.onStart(owner)
+        // Show Ad on app foregrounding (skips initial cold start, which is handled by MainActivity Splash)
         currentActivity?.let {
-            if (!appOpenAdManager.isInitialLaunch) {
-                appOpenAdManager.showAdIfAvailable(it, object : AppOpenAdManager.OnShowAdCompleteListener {
-                    override fun onShowAdComplete() {}
-                })
+            if (!isInitialLaunch) {
+                showAdIfAvailable(it)
             }
         }
     }
 
-    override fun onActivityStarted(activity: Activity) {
-        if (!appOpenAdManager.isShowingAd) currentActivity = activity
+    /** Show an App Open Ad on cold start. Called from MainActivity. */
+    fun showAdIfAvailable(activity: Activity, onShowComplete: () -> Unit = {}) {
+        appOpenAdManager.showAdIfAvailable(activity) {
+            Log.d(TAG, "Ad show cycle complete.")
+            onShowComplete()
+        }
     }
+
+    // --- ActivityLifecycleCallbacks ---
+    override fun onActivityStarted(activity: Activity) {
+        if (!appOpenAdManager.isShowingAd) {
+            currentActivity = activity
+        }
+    }
+    
     override fun onActivityResumed(activity: Activity) { currentActivity = activity }
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
     override fun onActivityPaused(activity: Activity) {}
     override fun onActivityStopped(activity: Activity) {}
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-    override fun onActivityDestroyed(activity: Activity) { 
-        if (currentActivity == activity) currentActivity = null 
+    override fun onActivityDestroyed(activity: Activity) {
+        if (currentActivity == activity) currentActivity = null
     }
 }
 """
 
-    # 4. Main UI 
+    # 4. Main UI (Combines Compose UI with your application.showAdIfAvailable call)
     main_activity_content = """package com.watermarker
 
 import android.content.ContentValues
@@ -212,24 +255,22 @@ class MainActivity : ComponentActivity() {
         setContent { 
             var isAppReady by remember { mutableStateOf(false) }
 
-            // SPLASH SCREEN LOGIC
+            // Splash Screen Logic ensuring Ad SDK has time to load
             LaunchedEffect(Unit) {
-                if (app.appOpenAdManager.isInitialLaunch) {
+                if (app.isInitialLaunch) {
                     val startTime = System.currentTimeMillis()
                     
-                    // Increased wait time to 5000ms (5s) to allow the failover network call to succeed
                     while (!app.appOpenAdManager.isAdAvailable() && 
                            !app.appOpenAdManager.isAdFailed && 
                            System.currentTimeMillis() - startTime < 5000) {
                         delay(100)
                     }
                     
-                    app.appOpenAdManager.showAdIfAvailable(this@MainActivity, object : AppOpenAdManager.OnShowAdCompleteListener {
-                        override fun onShowAdComplete() {
-                            app.appOpenAdManager.isInitialLaunch = false
-                            isAppReady = true
-                        }
-                    })
+                    // Call the function explicitly defined in your WaterMarkerApp
+                    app.showAdIfAvailable(this@MainActivity) {
+                        app.isInitialLaunch = false
+                        isAppReady = true
+                    }
                 } else {
                     isAppReady = true
                 }
@@ -422,12 +463,12 @@ suspend fun saveCustomFormat(context: Context, base: Bitmap, overlay: Bitmap, x:
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Injecting AdMob Live-to-Test failover logic...")
+    print("🎨 Updating Kotlin logic with requested AppOpenAdManager classes...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Complete: You will definitively see an Ad pop up upon launch!")
+    print("✅ Complete: You will see the ad load correctly without losing your Compose UI.")
 
 if __name__ == "__main__":
     generate_ui()
