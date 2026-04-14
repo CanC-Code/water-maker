@@ -29,8 +29,8 @@ android {
         applicationId "com.watermarker"
         minSdk 24
         targetSdk 35
-        versionCode 8
-        versionName "1.7"
+        versionCode 9
+        versionName "1.8"
         externalNativeBuild { cmake { cppFlags "" } }
     }
     buildFeatures { compose true }
@@ -52,15 +52,15 @@ dependencies {
 }
 """
 
+    settings_gradle = """
+rootProject.name = "WaterMarker"
+include ':app'
+"""
+
     gradle_properties = """
 android.useAndroidX=true
 android.enableJetifier=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-"""
-
-    settings_gradle = """
-rootProject.name = "WaterMarker"
-include ':app'
 """
 
     files = {
