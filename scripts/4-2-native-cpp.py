@@ -3,7 +3,7 @@ import os
 def generate():
     cpp_dir = "app/src/main/cpp"
     os.makedirs(cpp_dir, exist_ok=True)
-    
+
     cpp_content = """#include <jni.h>
 #include <android/log.h>
 #include <android/bitmap.h>
@@ -18,7 +18,7 @@ uint32_t getPixelBilinear(uint32_t* img, int width, int height, float x, float y
     int x2 = std::min(x1 + 1, width - 1);
     int y2 = std::min(y1 + 1, height - 1);
 
-    if (x1 < 0 || x1 >= width || y1 < 0 || y1 >= height) return 0; 
+    if (x1 < 0 || x1 >= width || y1 < 0 || y1 >= height) return 0;
 
     float dx = x - x1;
     float dy = y - y1;
@@ -51,7 +51,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
                                                    jfloat realOffsetX, jfloat realOffsetY,
                                                    jfloat realOverScale, jfloat overlayRotation,
                                                    jfloat overlayAlpha) {
-    
+
     AndroidBitmapInfo baseInfo, overInfo;
     void* basePixels; void* overPixels;
 
@@ -74,7 +74,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
 
     float cx = (overW * realOverScale) / 2.0f;
     float cy = (overH * realOverScale) / 2.0f;
-    
+
     float overlayCenterX = (baseW / 2.0f) + realOffsetX;
     float overlayCenterY = (baseH / 2.0f) + realOffsetY;
 
@@ -91,7 +91,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
 
             if (origSrcX >= 0 && origSrcX < overW - 1 && origSrcY >= 0 && origSrcY < overH - 1) {
                 uint32_t pxl = getPixelBilinear(overData, overW, overH, origSrcX, origSrcY);
-                
+
                 uint8_t sa = (pxl >> 24) & 0xFF;
                 if (sa > 0) {
                     uint8_t sb = (pxl >> 16) & 0xFF;
@@ -107,10 +107,11 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
                     float srcAlpha = sa / 255.0f;
                     float combinedAlpha = srcAlpha * overlayAlpha;
 
-                    uint8_t nr = std::min(255.0f, (sr * overlayAlpha) + br * (1.0f - combinedAlpha));
-                    uint8_t ng = std::min(255.0f, (sg * overlayAlpha) + bg * (1.0f - combinedAlpha));
-                    uint8_t nb = std::min(255.0f, (sb * overlayAlpha) + bb * (1.0f - combinedAlpha));
-                    uint8_t na = std::min(255.0f, (sa * overlayAlpha) + ba * (1.0f - combinedAlpha));
+                    // FIX: static_cast prevents warnings/errors on C++ narrowing conversions
+                    uint8_t nr = static_cast<uint8_t>(std::min(255.0f, (sr * overlayAlpha) + br * (1.0f - combinedAlpha)));
+                    uint8_t ng = static_cast<uint8_t>(std::min(255.0f, (sg * overlayAlpha) + bg * (1.0f - combinedAlpha)));
+                    uint8_t nb = static_cast<uint8_t>(std::min(255.0f, (sb * overlayAlpha) + bb * (1.0f - combinedAlpha)));
+                    uint8_t na = static_cast<uint8_t>(std::min(255.0f, (sa * overlayAlpha) + ba * (1.0f - combinedAlpha)));
 
                     baseData[y * baseW + x] = (na << 24) | (nb << 16) | (ng << 8) | nr;
                 }
@@ -125,7 +126,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
 """
     with open(f"{cpp_dir}/watermarker.cpp", "w") as f:
         f.write(cpp_content)
-    print("✅ 4-2 Generated Native C++ Engine")
+    print("✅ 4-2 Generated Native C++ Engine with static casting.")
 
 if __name__ == "__main__":
     generate()
