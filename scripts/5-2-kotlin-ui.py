@@ -3,7 +3,7 @@ import os
 def generate():
     package_path = "app/src/main/java/com/watermarker"
     os.makedirs(package_path, exist_ok=True)
-    
+
     main_activity_content = r"""package com.watermarker
 
 import android.content.Context
@@ -86,19 +86,19 @@ fun ColorWheel(onColorSelected: (Color) -> Unit) {
 
 class MainActivity : ComponentActivity() {
     private val nativeEngine = NativeEngine()
-    
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val systemDark = isSystemInDarkTheme()
             var isDarkMode by remember { mutableStateOf(systemDark) }
-            
+
             MaterialTheme(colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     var showMenu by remember { mutableStateOf(false) }
                     var showInventory by remember { mutableStateOf(false) }
-                    
+
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
                     var showTextDialog by remember { mutableStateOf(false) }
@@ -107,23 +107,23 @@ class MainActivity : ComponentActivity() {
                     var customTypeface by remember { mutableStateOf<Typeface?>(null) }
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
-                    
+
                     var baseRotation by remember { mutableStateOf(0f) }
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
                     var overlayRotation by remember { mutableStateOf(0f) }
-                    var overlayAlpha by remember { mutableStateOf(1f) } 
-                    
+                    var overlayAlpha by remember { mutableStateOf(1f) }
+
                     var previewWidth by remember { mutableStateOf(1f) }
                     var previewHeight by remember { mutableStateOf(1f) }
-                    
+
                     val context = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
-                    
+
                     val inventoryDir = remember { File(context.filesDir, "saved_overlays").apply { mkdirs() } }
                     var savedOverlays by remember { mutableStateOf(inventoryDir.listFiles()?.toList() ?: emptyList()) }
                     fun refreshInventory() { savedOverlays = inventoryDir.listFiles()?.toList() ?: emptyList() }
-                    
+
                     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri; baseRotation = 0f }
                     val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f }
                     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -158,7 +158,7 @@ class MainActivity : ComponentActivity() {
                         }
                     ) { paddingValues ->
                         Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            
+
                             if (showInventory) {
                                 AlertDialog(
                                     onDismissRequest = { showInventory = false },
@@ -214,18 +214,16 @@ class MainActivity : ComponentActivity() {
                                     previewWidth = coordinates.size.width.toFloat()
                                     previewHeight = coordinates.size.height.toFloat()
                                 }) {
-                                
+
                                 val baseBitmap = remember(baseImageUri, baseRotation) { loadAndRotateStrictBitmap(context, baseImageUri, baseRotation) }
                                 val overlayBitmap = remember(overlayImageUri) { loadStrictBitmap(context, overlayImageUri) }
-                                
+
                                 if (baseBitmap != null) {
                                     Image(bitmap = baseBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                                 }
                                 if (overlayBitmap != null) {
                                     Image(bitmap = overlayBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
-                                        .fillMaxSize() 
-                                        // FIX: pointerInput is now ABOVE graphicsLayer.
-                                        // This ensures your touches are processed relative to the flat screen, not the transformed image!
+                                        .fillMaxSize()
                                         .pointerInput(Unit) {
                                             detectTransformGestures { _, pan, zoom, rotation ->
                                                 overlayOffset += pan
@@ -234,23 +232,23 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                         .graphicsLayer(
-                                            translationX = overlayOffset.x, 
-                                            translationY = overlayOffset.y, 
-                                            scaleX = overlayScale, 
-                                            scaleY = overlayScale, 
-                                            rotationZ = overlayRotation, 
+                                            translationX = overlayOffset.x,
+                                            translationY = overlayOffset.y,
+                                            scaleX = overlayScale,
+                                            scaleY = overlayScale,
+                                            rotationZ = overlayRotation,
                                             alpha = overlayAlpha
                                         ),
                                         contentScale = ContentScale.Fit
                                     )
                                 }
-                                
+
                                 LaunchedEffect(baseBitmap, overlayBitmap) {
                                     if (baseBitmap != null) AppState.currentBaseBitmap = baseBitmap
                                     if (overlayBitmap != null) AppState.currentOverlayBitmap = overlayBitmap
                                 }
                             }
-                            
+
                             Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Button(onClick = {
                                     if (overlayImageUri != null) {
@@ -262,7 +260,7 @@ class MainActivity : ComponentActivity() {
                                 }) { Text("Save Overlay") }
                                 OutlinedButton(onClick = { baseRotation = (baseRotation + 90f) % 360f }, enabled = baseImageUri != null) { Text("Rotate Base 90°") }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(10.dp))
                             Text("Opacity Layer: ${(overlayAlpha * 100).toInt()}%", fontSize = 12.sp)
                             Slider(value = overlayAlpha, onValueChange = { overlayAlpha = it }, valueRange = 0f..1f)
@@ -273,10 +271,10 @@ class MainActivity : ComponentActivity() {
                                     Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = outputFormat == format, onClick = { outputFormat = format }); Text(format, fontSize = 14.sp) }
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(10.dp))
                             Button(
-                                onClick = { 
+                                onClick = {
                                     val baseBmp = AppState.currentBaseBitmap
                                     val overlayBmp = AppState.currentOverlayBitmap
                                     if (baseBmp != null && overlayBmp != null) {
@@ -291,14 +289,14 @@ class MainActivity : ComponentActivity() {
                                                 val realOffsetX = overlayOffset.x / baseScaleUI
                                                 val realOffsetY = overlayOffset.y / baseScaleUI
                                                 val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
-                                                
+
                                                 val mutableBase = baseBmp.copy(Bitmap.Config.ARGB_8888, true)
                                                 val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
-                                                
+
                                                 val success = try {
                                                     nativeEngine.processWatermark(mutableBase, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
                                                 } catch (t: Throwable) { false }
-                                                
+
                                                 withContext(Dispatchers.Main) {
                                                     if (success) {
                                                         val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
@@ -322,10 +320,24 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
     object AppState {
         var currentBaseBitmap: Bitmap? = null
         var currentOverlayBitmap: Bitmap? = null
+    }
+
+    // FIX: Downsampling calculation to prevent OOM
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.outHeight to options.outWidth
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
     }
 
     private fun loadBitmapFromFile(path: String): Bitmap? {
@@ -335,16 +347,33 @@ class MainActivity : ComponentActivity() {
     private fun loadStrictBitmap(context: Context, uri: Uri?): Bitmap? {
         if (uri == null) return null
         return try {
-            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = false; inScaled = false }
-            BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options)
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            
+            options.inSampleSize = calculateInSampleSize(options, 1920, 1080)
+            options.inJustDecodeBounds = false
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888
+            options.inMutable = false
+            options.inScaled = false
+            
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
         } catch (e: Exception) { null }
     }
 
     private fun loadAndRotateStrictBitmap(context: Context, uri: Uri?, rotation: Float): Bitmap? {
         if (uri == null) return null
         return try {
-            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = true; inScaled = false }
-            val bitmap = BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options) ?: return null
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            
+            options.inSampleSize = calculateInSampleSize(options, 1920, 1080)
+            options.inJustDecodeBounds = false
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888
+            options.inMutable = true
+            options.inScaled = false
+            
+            val bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) } ?: return null
+            
             if (rotation != 0f) {
                 val matrix = Matrix().apply { postRotate(rotation) }
                 val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
@@ -382,7 +411,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-2 Generated Refined Compose UI")
+    print("✅ 5-2 Generated Refined Compose UI with OOM prevention.")
 
 if __name__ == "__main__":
     generate()
