@@ -105,9 +105,9 @@ fun createTextBitmap(text: String, color: Int, typeface: Typeface?, bendAmount: 
     val textWidth = paint.measureText(text)
     val textHeight = paint.descent() - paint.ascent()
     
-    // Dynamically scale bounding box to prevent clipping at extreme curve gradients
+    // FIX: Scale bounding box height based on curve severity to prevent clipping
     val bmpWidth = (textWidth + abs(bendAmount) * 12 + 300).toInt()
-    val bmpHeight = (textHeight + abs(bendAmount) * 12 + 400).toInt()
+    val bmpHeight = (textHeight + abs(bendAmount) * 20 + 400).toInt()
 
     val bitmap = Bitmap.createBitmap(bmpWidth, bmpHeight, Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bitmap)
@@ -123,13 +123,11 @@ fun createTextBitmap(text: String, color: Int, typeface: Typeface?, bendAmount: 
         val startX = (bmpWidth - textWidth) / 2f - 50f
         val endX = startX + textWidth + 100f
         
-        // Multiplier dramatically increases the quadratic apex based on user input
         val controlY = midY + (bendAmount * 18f)
 
         path.moveTo(startX, midY)
         path.quadTo(midX, controlY, endX, midY)
 
-        // Core fix: Calculate path topography to mathematically anchor text to the center
         val pathMeasure = PathMeasure(path, false)
         val pathLength = pathMeasure.length
         val hOffset = pathLength / 2f
@@ -161,7 +159,7 @@ fun createDrawingBitmap(strokes: List<DrawStroke>, width: Int, height: Int): Bit
 """
     with open(f"{package_path}/OverlayUtils.kt", "w") as f:
         f.write(utils_content)
-    print("✅ 5-3 Generated OverlayUtils.kt (Text Curving, PathMeasure, & Matrix Drawing)")
+    print("✅ 5-3 Generated OverlayUtils.kt (Fixed Height Curve Boundaries)")
 
 if __name__ == "__main__":
     generate()
