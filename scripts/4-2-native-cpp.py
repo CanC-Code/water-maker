@@ -94,26 +94,27 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
 
                 uint8_t sa = (pxl >> 24) & 0xFF;
                 if (sa > 0) {
-                    uint8_t sb = (pxl >> 16) & 0xFF;
+                    
+                    // FIX: Correctly align ARGB shifting masks. (Red is 16, Blue is 0)
+                    uint8_t sr = (pxl >> 16) & 0xFF;
                     uint8_t sg = (pxl >> 8) & 0xFF;
-                    uint8_t sr = pxl & 0xFF;
+                    uint8_t sb = pxl & 0xFF;
 
                     uint32_t basePxl = baseData[y * baseW + x];
                     uint8_t ba = (basePxl >> 24) & 0xFF;
-                    uint8_t bb = (basePxl >> 16) & 0xFF;
+                    uint8_t br = (basePxl >> 16) & 0xFF;
                     uint8_t bg = (basePxl >> 8) & 0xFF;
-                    uint8_t br = basePxl & 0xFF;
+                    uint8_t bb = basePxl & 0xFF;
 
                     float srcAlpha = sa / 255.0f;
                     float combinedAlpha = srcAlpha * overlayAlpha;
 
-                    // FIX: static_cast prevents warnings/errors on C++ narrowing conversions
                     uint8_t nr = static_cast<uint8_t>(std::min(255.0f, (sr * overlayAlpha) + br * (1.0f - combinedAlpha)));
                     uint8_t ng = static_cast<uint8_t>(std::min(255.0f, (sg * overlayAlpha) + bg * (1.0f - combinedAlpha)));
                     uint8_t nb = static_cast<uint8_t>(std::min(255.0f, (sb * overlayAlpha) + bb * (1.0f - combinedAlpha)));
                     uint8_t na = static_cast<uint8_t>(std::min(255.0f, (sa * overlayAlpha) + ba * (1.0f - combinedAlpha)));
 
-                    baseData[y * baseW + x] = (na << 24) | (nb << 16) | (ng << 8) | nr;
+                    baseData[y * baseW + x] = (na << 24) | (nr << 16) | (ng << 8) | nb;
                 }
             }
         }
@@ -126,7 +127,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
 """
     with open(f"{cpp_dir}/watermarker.cpp", "w") as f:
         f.write(cpp_content)
-    print("✅ 4-2 Generated Native C++ Engine with static casting.")
+    print("✅ 4-2 Generated Native C++ Engine (Color Rendering Fixed).")
 
 if __name__ == "__main__":
     generate()
