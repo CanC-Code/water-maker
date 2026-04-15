@@ -73,7 +73,8 @@ fun ColorWheel(onColorSelected: (Color) -> Unit) {
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.minDimension / 2f
-        val colors = listOf(Color.Red, Color.Magenta, Color.Blue, Color.Cyan, Color.Green, Color.Yellow, Color.Red)
+        // FIX: Realigned HSV Color Array for perfect hue matching!
+        val colors = listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
         drawCircle(brush = Brush.sweepGradient(colors, center = center), radius = radius, center = center)
         drawCircle(brush = Brush.radialGradient(listOf(Color.White, Color.Transparent), center = center, radius = radius), radius = radius, center = center)
         if (currentPosition != Offset.Unspecified) {
@@ -108,7 +109,10 @@ class MainActivity : ComponentActivity() {
                     var activeColorContext by remember { mutableStateOf("text") } 
 
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
+                    
+                    // FIX: Segregated Layers prevents wipeouts!
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
+                    var drawingImageUri by remember { mutableStateOf<Uri?>(null) }
 
                     // Text Properties
                     var showTextDialog by remember { mutableStateOf(false) }
@@ -237,15 +241,19 @@ class MainActivity : ComponentActivity() {
                                         if (drawPaths.isNotEmpty()) {
                                             IconButton(onClick = { drawPaths = drawPaths.dropLast(1) }) { Icon(Icons.Default.ArrowBack, "Undo Stroke") }
                                         }
-                                        IconButton(onClick = { drawPaths = emptyList() }) { Icon(Icons.Default.Clear, "Clear Canvas") }
+                                        IconButton(onClick = { 
+                                            drawPaths = emptyList() 
+                                            drawingImageUri = null // Clearing Canvas wipes the drawing layer
+                                        }) { Icon(Icons.Default.Clear, "Clear Canvas") }
+                                        
                                         IconButton(onClick = {
                                             if (drawPaths.isNotEmpty()) {
                                                 val bmp = createDrawingBitmap(drawPaths, previewWidth.toInt(), previewHeight.toInt())
-                                                
                                                 val tempFile = File(context.cacheDir, "drawing_${System.currentTimeMillis()}.png")
                                                 FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
-                                                overlayImageUri = Uri.fromFile(tempFile)
-                                                overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f; overlayText = ""
+                                                
+                                                // FIX: Rendered to drawing layer without modifying overlayImageUri
+                                                drawingImageUri = Uri.fromFile(tempFile)
                                             }
                                             isDrawingMode = false
                                         }) { Icon(Icons.Default.Check, "Save Drawing", tint = Color(0xFF10B981)) }
@@ -254,7 +262,7 @@ class MainActivity : ComponentActivity() {
                                             IconButton(onClick = {
                                                 overlayImageUri = null
                                                 overlayText = ""
-                                                Toast.makeText(context, "Overlay Removed", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Text Overlay Removed", Toast.LENGTH_SHORT).show()
                                             }) { Icon(Icons.Default.Delete, "Remove Overlay", tint = Color.Red) }
                                         }
 
@@ -265,7 +273,7 @@ class MainActivity : ComponentActivity() {
                                             DropdownMenuItem(text = { Text("Load Main Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Load Image Overlay") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Add Text Overlay") }, onClick = { showMenu = false; showTextDialog = true })
-                                            DropdownMenuItem(text = { Text("Draw Overlay") }, onClick = { showMenu = false; isDrawingMode = true; drawPaths = emptyList() })
+                                            DropdownMenuItem(text = { Text("Draw Overlay") }, onClick = { showMenu = false; isDrawingMode = true })
                                             DropdownMenuItem(text = { Text("Saved Overlays") }, onClick = { showMenu = false; showInventory = true; refreshInventory() })
                                             DropdownMenuItem(text = { Text("Import Custom Font (.ttf)") }, onClick = { showMenu = false; fontPicker.launch("*/*") })
                                         }
@@ -303,7 +311,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                             Box(modifier = Modifier
                                                 .size(36.dp)
-                                                .background(Brush.sweepGradient(listOf(Color.Red, Color.Magenta, Color.Blue, Color.Cyan, Color.Green, Color.Yellow, Color.Red)), shape = CircleShape)
+                                                .background(Brush.sweepGradient(listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)), shape = CircleShape)
                                                 .clickable { 
                                                     activeColorContext = "pen"
                                                     showColorPickerDialog = true 
@@ -344,36 +352,45 @@ class MainActivity : ComponentActivity() {
                                             onClick = {
                                                 val baseBmp = AppState.currentBaseBitmap
                                                 val overlayBmp = AppState.currentOverlayBitmap
-                                                if (baseBmp != null && overlayBmp != null) {
+                                                val drawingBmp = AppState.currentDrawingBitmap
+                                                
+                                                if (baseBmp != null) {
                                                     Toast.makeText(context, "Processing Watermark...", Toast.LENGTH_SHORT).show()
                                                     coroutineScope.launch(Dispatchers.IO) {
                                                         try {
                                                             val boxW = previewWidth
                                                             val boxH = previewHeight
                                                             val baseScaleUI = min(boxW / baseBmp.width, boxH / baseBmp.height)
-                                                            val overScaleUI = min(boxW / overlayBmp.width, boxH / overlayBmp.height)
-
-                                                            val realOffsetX = overlayOffset.x / baseScaleUI
-                                                            val realOffsetY = overlayOffset.y / baseScaleUI
-                                                            val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
 
                                                             val mutableBase = baseBmp.copy(Bitmap.Config.ARGB_8888, true)
-                                                            val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
 
-                                                            val success = try {
+                                                            // LAYER 1: Apply Text Overlay (Behind Drawing)
+                                                            if (overlayBmp != null) {
+                                                                val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
+                                                                val overScaleUI = min(boxW / overlayBmp.width, boxH / overlayBmp.height)
+                                                                val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
+                                                                val realOffsetX = overlayOffset.x / baseScaleUI
+                                                                val realOffsetY = overlayOffset.y / baseScaleUI
+                                                                
                                                                 nativeEngine.processWatermark(mutableBase, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
-                                                            } catch (t: Throwable) { false }
+                                                            }
+
+                                                            // LAYER 2: Apply Pen Drawing (Topmost)
+                                                            if (drawingBmp != null) {
+                                                                val drawOverlay = drawingBmp.copy(Bitmap.Config.ARGB_8888, false)
+                                                                val realDrawScale = 1f / baseScaleUI
+                                                                nativeEngine.processWatermark(mutableBase, drawOverlay, 0f, 0f, realDrawScale, 0f, 1f)
+                                                            }
 
                                                             withContext(Dispatchers.Main) {
-                                                                if (success) {
-                                                                    val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
-                                                                    FileOutputStream(outputPath).use { out ->
-                                                                        val cf = if (outputFormat == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-                                                                        mutableBase.compress(cf, exportQuality.toInt(), out)
-                                                                    }
-                                                                    val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
-                                                                    if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
-                                                                } else Toast.makeText(context, "❌ Error saving image.", Toast.LENGTH_LONG).show()
+                                                                val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
+                                                                FileOutputStream(outputPath).use { out ->
+                                                                    val cf = if (outputFormat == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                                                                    mutableBase.compress(cf, exportQuality.toInt(), out)
+                                                                }
+                                                                val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
+                                                                if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
+                                                                else Toast.makeText(context, "❌ Error saving image.", Toast.LENGTH_LONG).show()
                                                             }
                                                         } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Process failed.", Toast.LENGTH_LONG).show() } }
                                                     }
@@ -425,29 +442,36 @@ class MainActivity : ComponentActivity() {
 
                                 val baseBitmap = remember(baseImageUri, baseRotation) { loadAndRotateStrictBitmap(context, baseImageUri, baseRotation) }
                                 val overlayBitmap = remember(overlayImageUri) { loadStrictBitmap(context, overlayImageUri) }
+                                val drawingBitmap = remember(drawingImageUri) { loadStrictBitmap(context, drawingImageUri) }
 
+                                // 1. Base Layer
                                 if (baseBitmap != null) {
                                     Image(bitmap = baseBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                                 }
-                                if (overlayBitmap != null && !isDrawingMode) {
+                                
+                                // 2. Text / Movable Overlay Layer
+                                if (overlayBitmap != null) {
+                                    val interactionModifier = if (!isDrawingMode) {
+                                        Modifier
+                                            .pointerInput(Unit) {
+                                                detectTapGestures(
+                                                    onDoubleTap = {
+                                                        if (overlayText.isNotEmpty()) showTextDialog = true
+                                                    }
+                                                )
+                                            }
+                                            .pointerInput(Unit) {
+                                                detectTransformGestures { _, pan, zoom, rotation ->
+                                                    overlayOffset += pan
+                                                    overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
+                                                    overlayRotation += rotation
+                                                }
+                                            }
+                                    } else Modifier
+
                                     Image(bitmap = overlayBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
                                         .fillMaxSize()
-                                        .pointerInput(Unit) {
-                                            detectTapGestures(
-                                                onDoubleTap = {
-                                                    if (overlayText.isNotEmpty()) {
-                                                        showTextDialog = true
-                                                    }
-                                                }
-                                            )
-                                        }
-                                        .pointerInput(Unit) {
-                                            detectTransformGestures { _, pan, zoom, rotation ->
-                                                overlayOffset += pan
-                                                overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
-                                                overlayRotation += rotation
-                                            }
-                                        }
+                                        .then(interactionModifier)
                                         .graphicsLayer(
                                             translationX = overlayOffset.x,
                                             translationY = overlayOffset.y,
@@ -460,6 +484,12 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
+                                // 3. Baked Drawing Layer
+                                if (drawingBitmap != null && !isDrawingMode) {
+                                    Image(bitmap = drawingBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                                }
+
+                                // 4. Live Drawing Canvas (Overrides Interaction)
                                 if (isDrawingMode) {
                                     Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                                         detectDragGestures(
@@ -504,9 +534,10 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                LaunchedEffect(baseBitmap, overlayBitmap) {
-                                    if (baseBitmap != null) AppState.currentBaseBitmap = baseBitmap
-                                    if (overlayBitmap != null) AppState.currentOverlayBitmap = overlayBitmap
+                                LaunchedEffect(baseBitmap, overlayBitmap, drawingBitmap) {
+                                    AppState.currentBaseBitmap = baseBitmap
+                                    AppState.currentOverlayBitmap = overlayBitmap
+                                    AppState.currentDrawingBitmap = drawingBitmap
                                 }
                             }
                         }
@@ -519,7 +550,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Friendly naming, complete functionality)")
+    print("✅ 5-4 Generated UI (Hue Alignment & Layer Decoupling)")
 
 if __name__ == "__main__":
     generate()
