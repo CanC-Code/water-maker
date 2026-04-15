@@ -14,6 +14,8 @@ def generate_manifest_and_res():
         android:name=".WaterMarkerApp"
         android:largeHeap="true"
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.WaterMarker">
@@ -44,11 +46,10 @@ def generate_manifest_and_res():
         f"{res_dir}/values/themes.xml": themes_content.strip(),
     }
 
-    print("📄 Generating Manifest with Large Heap enabled...")
+    print("📄 Generating Manifest with Native Icons enabled...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(content)
+        with open(path, "w") as f: f.write(content)
 
 if __name__ == "__main__":
     generate_manifest_and_res()
