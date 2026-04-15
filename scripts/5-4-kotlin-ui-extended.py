@@ -108,8 +108,11 @@ class MainActivity : ComponentActivity() {
                     var showColorPickerDialog by remember { mutableStateOf(false) }
                     var activeColorContext by remember { mutableStateOf("text") } 
 
+                    // Eyedropper State
+                    var isEyedropperMode by remember { mutableStateOf(false) }
+                    var returnToTextDialog by remember { mutableStateOf(false) }
+
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
-                    
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
                     var drawingImageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -119,7 +122,6 @@ class MainActivity : ComponentActivity() {
                     var overlayTextBend by remember { mutableStateOf(0f) }
                     var customTypeface by remember { mutableStateOf<Typeface?>(null) }
 
-                    // Drawing Properties with REDO Stack
                     var isDrawingMode by remember { mutableStateOf(false) }
                     var drawPaths by remember { mutableStateOf(listOf<DrawStroke>()) }
                     var redoPaths by remember { mutableStateOf(listOf<DrawStroke>()) }
@@ -130,7 +132,7 @@ class MainActivity : ComponentActivity() {
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
 
-                    // Dual-Layer Spatial Transformations
+                    // Transformation States
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
                     var overlayRotation by remember { mutableStateOf(0f) }
@@ -142,8 +144,8 @@ class MainActivity : ComponentActivity() {
                     var baseRotation by remember { mutableStateOf(0f) }
                     var overlayAlpha by remember { mutableStateOf(1f) }
 
-                    // State Locks
-                    var activeLayer by remember { mutableStateOf("Text") } // "Text" or "Pen"
+                    // Lock Mechanism States
+                    var activeLayer by remember { mutableStateOf("Text") }
                     var isLocked by remember { mutableStateOf(false) }
 
                     var previewWidth by remember { mutableStateOf(1f) }
@@ -176,10 +178,22 @@ class MainActivity : ComponentActivity() {
                             onDismissRequest = { showColorPickerDialog = false },
                             title = { Text(if (activeColorContext == "text") "Text Color" else "Pen Color") },
                             text = {
-                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    ColorWheel(onColorSelected = { 
-                                        if (activeColorContext == "text") overlayTextColor = it else drawColor = it 
-                                    })
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                        ColorWheel(onColorSelected = { 
+                                            if (activeColorContext == "text") overlayTextColor = it else drawColor = it 
+                                        })
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    // Enter Eyedropper from Color Wheel
+                                    Button(onClick = { 
+                                        showColorPickerDialog = false
+                                        if (activeColorContext == "text") {
+                                            showTextDialog = false
+                                            returnToTextDialog = true
+                                        }
+                                        isEyedropperMode = true
+                                    }) { Text("🎯 Pick from Image") }
                                 }
                             },
                             confirmButton = { Button(onClick = { showColorPickerDialog = false }) { Text("Done") } }
@@ -262,13 +276,11 @@ class MainActivity : ComponentActivity() {
                                         IconButton(onClick = {
                                             val baseBitmap = AppState.currentBaseBitmap
                                             if (drawPaths.isNotEmpty() && baseBitmap != null) {
-                                                // Mathematically bound to base image size
                                                 val bmp = createDrawingBitmap(drawPaths, baseBitmap.width, baseBitmap.height)
                                                 val tempFile = File(context.cacheDir, "drawing_${System.currentTimeMillis()}.png")
                                                 FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                                 
                                                 drawingImageUri = Uri.fromFile(tempFile)
-                                                // Reset transforms so new drawings anchor perfectly
                                                 drawingOffset = Offset.Zero
                                                 drawingScale = 1f
                                                 drawingRotation = 0f
@@ -294,11 +306,7 @@ class MainActivity : ComponentActivity() {
                                             DropdownMenuItem(text = { Text("Load Main Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Load Image Overlay") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Add Text Overlay") }, onClick = { showMenu = false; showTextDialog = true })
-                                            DropdownMenuItem(
-                                                text = { Text("Draw Overlay") }, 
-                                                onClick = { showMenu = false; isDrawingMode = true },
-                                                enabled = baseImageUri != null // Prevent drawing without base context
-                                            )
+                                            DropdownMenuItem(text = { Text("Draw Overlay") }, onClick = { showMenu = false; isDrawingMode = true }, enabled = baseImageUri != null)
                                             DropdownMenuItem(text = { Text("Saved Overlays") }, onClick = { showMenu = false; showInventory = true; refreshInventory() })
                                             DropdownMenuItem(text = { Text("Import Custom Font (.ttf)") }, onClick = { showMenu = false; fontPicker.launch("*/*") })
                                         }
@@ -343,16 +351,32 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 .border(2.dp, if (!quickColors.contains(drawColor)) Color.DarkGray else Color.Transparent, CircleShape)
                                             )
+                                            // Eyedropper Button
+                                            Button(
+                                                onClick = { activeColorContext = "pen"; isEyedropperMode = true },
+                                                modifier = Modifier.size(45.dp),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) { Text("🎯", fontSize = 18.sp) }
                                         }
                                     } else {
-                                        // Dynamic Interaction Toggle Panel
+                                        // Highly visible Lock Mechanism UI
                                         if (overlayImageUri != null && drawingImageUri != null) {
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                                                FilterChip(selected = activeLayer == "Text", onClick = { activeLayer = "Text" }, label = { Text("Move Text") })
-                                                FilterChip(selected = activeLayer == "Pen", onClick = { activeLayer = "Pen" }, label = { Text("Move Pen") })
-                                                FilterChip(selected = isLocked, onClick = { isLocked = !isLocked }, label = { Text("Lock Layers") })
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 12.dp)
+                                                    .background(MaterialTheme.colorScheme.background, CircleShape)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                                                horizontalArrangement = Arrangement.SpaceEvenly
+                                            ) {
+                                                val textBg = if (activeLayer == "Text" && !isLocked) MaterialTheme.colorScheme.primary else Color.Transparent
+                                                val penBg = if (activeLayer == "Pen" && !isLocked) MaterialTheme.colorScheme.primary else Color.Transparent
+                                                val lockBg = if (isLocked) MaterialTheme.colorScheme.primary else Color.Transparent
+
+                                                TextButton(onClick = { activeLayer = "Text"; isLocked = false }, modifier = Modifier.weight(1f).background(textBg, CircleShape)) { Text("Move Text", color = if (activeLayer == "Text" && !isLocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
+                                                TextButton(onClick = { activeLayer = "Pen"; isLocked = false }, modifier = Modifier.weight(1f).background(penBg, CircleShape)) { Text("Move Pen", color = if (activeLayer == "Pen" && !isLocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
+                                                TextButton(onClick = { isLocked = true }, modifier = Modifier.weight(1f).background(lockBg, CircleShape)) { Text("🔒 Locked", color = if (isLocked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
                                             }
-                                            Spacer(modifier = Modifier.height(8.dp))
                                         }
 
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -398,26 +422,21 @@ class MainActivity : ComponentActivity() {
                                                             val baseScaleUI = min(boxW / baseBmp.width, boxH / baseBmp.height)
                                                             val mutableBase = baseBmp.copy(Bitmap.Config.ARGB_8888, true)
 
-                                                            // LAYER 1: Apply Text Overlay
                                                             if (overlayBmp != null) {
                                                                 val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
                                                                 val overScaleUI = min(boxW / overlayBmp.width, boxH / overlayBmp.height)
                                                                 val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
                                                                 val realOffsetX = overlayOffset.x / baseScaleUI
                                                                 val realOffsetY = overlayOffset.y / baseScaleUI
-                                                                
                                                                 nativeEngine.processWatermark(mutableBase, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
                                                             }
 
-                                                            // LAYER 2: Apply Pen Drawing
                                                             if (drawingBmp != null) {
                                                                 val drawOverlay = drawingBmp.copy(Bitmap.Config.ARGB_8888, false)
-                                                                // Mathematically bound to base coords
                                                                 val drawScaleUI = min(boxW / drawingBmp.width, boxH / drawingBmp.height)
                                                                 val realDrawScale = (drawScaleUI * drawingScale) / baseScaleUI
                                                                 val realDrawOffsetX = drawingOffset.x / baseScaleUI
                                                                 val realDrawOffsetY = drawingOffset.y / baseScaleUI
-                                                                
                                                                 nativeEngine.processWatermark(mutableBase, drawOverlay, realDrawOffsetX, realDrawOffsetY, realDrawScale, drawingRotation, overlayAlpha)
                                                             }
 
@@ -487,12 +506,12 @@ class MainActivity : ComponentActivity() {
                                 val dx = if (baseBitmap != null) (previewWidth - baseBitmap.width * baseScaleUI) / 2f else 0f
                                 val dy = if (baseBitmap != null) (previewHeight - baseBitmap.height * baseScaleUI) / 2f else 0f
 
-                                // 1. Base Layer
+                                // Base Layer
                                 if (baseBitmap != null) {
                                     Image(bitmap = baseBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                                 }
                                 
-                                // 2. Text Overlay Layer
+                                // Text Overlay Layer
                                 if (overlayBitmap != null) {
                                     Image(bitmap = overlayBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
                                         .fillMaxSize()
@@ -508,7 +527,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // 3. Baked Drawing Layer
+                                // Baked Drawing Layer
                                 if (drawingBitmap != null && !isDrawingMode) {
                                     Image(bitmap = drawingBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
                                         .fillMaxSize()
@@ -524,20 +543,29 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // 4. Global Layer Lock Gesture Interceptor
-                                if (!isDrawingMode && (overlayBitmap != null || drawingBitmap != null)) {
+                                // Global Layer Lock Gesture Interceptor with Correct Trigonometric Rotation
+                                if (!isDrawingMode && !isEyedropperMode && (overlayBitmap != null || drawingBitmap != null)) {
                                     Box(modifier = Modifier
                                         .fillMaxSize()
                                         .pointerInput(activeLayer, isLocked) {
                                             detectTransformGestures { _, pan, zoom, rotation ->
                                                 if (isLocked) {
+                                                    // Math fixes drift by explicitly shifting the offsets through scale & rotation
+                                                    val rad = rotation * (PI / 180.0)
+                                                    val cosR = cos(rad).toFloat()
+                                                    val sinR = sin(rad).toFloat()
+
                                                     if (overlayBitmap != null) {
-                                                        overlayOffset += pan
+                                                        val zx = overlayOffset.x * zoom
+                                                        val zy = overlayOffset.y * zoom
+                                                        overlayOffset = Offset(zx * cosR - zy * sinR + pan.x, zx * sinR + zy * cosR + pan.y)
                                                         overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
                                                         overlayRotation += rotation
                                                     }
                                                     if (drawingBitmap != null) {
-                                                        drawingOffset += pan
+                                                        val zx = drawingOffset.x * zoom
+                                                        val zy = drawingOffset.y * zoom
+                                                        drawingOffset = Offset(zx * cosR - zy * sinR + pan.x, zx * sinR + zy * cosR + pan.y)
                                                         drawingScale = (drawingScale * zoom).coerceIn(0.1f, 10f)
                                                         drawingRotation += rotation
                                                     }
@@ -564,16 +592,15 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // 5. Live Drawing Interaction
-                                if (isDrawingMode && baseBitmap != null) {
+                                // Interactive Vector Canvas
+                                if (isDrawingMode && !isEyedropperMode && baseBitmap != null) {
                                     Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                                         detectDragGestures(
                                             onDragStart = { offset ->
-                                                // Convert raw gestures instantly to base coords
                                                 val bx = (offset.x - dx) / baseScaleUI
                                                 val by = (offset.y - dy) / baseScaleUI
                                                 currentDrawStroke = listOf(Offset(bx, by))
-                                                redoPaths = emptyList() // Clear redo history on new stroke
+                                                redoPaths = emptyList()
                                             },
                                             onDrag = { change, _ ->
                                                 val bx = (change.position.x - dx) / baseScaleUI
@@ -587,14 +614,12 @@ class MainActivity : ComponentActivity() {
                                                     for (i in 1 until currentDrawStroke.size) {
                                                         androidPath.lineTo(currentDrawStroke[i].x, currentDrawStroke[i].y)
                                                     }
-                                                    // Stroke width dynamically adapts to image scale
                                                     drawPaths = drawPaths + DrawStroke(androidPath, drawColor.toArgb(), drawStrokeWidth / baseScaleUI)
                                                 }
                                                 currentDrawStroke = emptyList()
                                             }
                                         )
                                     }) {
-                                        // Renders vectors in accurate base-coordinate space mapping
                                         drawContext.canvas.save()
                                         drawContext.canvas.translate(dx, dy)
                                         drawContext.canvas.scale(baseScaleUI, baseScaleUI)
@@ -622,6 +647,47 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
+                                // Eyedropper Interaction Interceptor
+                                if (isEyedropperMode) {
+                                    val updateColor = { offset: Offset ->
+                                        if (baseBitmap != null) {
+                                            val bx = ((offset.x - dx) / baseScaleUI).toInt().coerceIn(0, baseBitmap.width - 1)
+                                            val by = ((offset.y - dy) / baseScaleUI).toInt().coerceIn(0, baseBitmap.height - 1)
+                                            val pickedColor = Color(baseBitmap.getPixel(bx, by))
+                                            if (activeColorContext == "text") overlayTextColor = pickedColor else drawColor = pickedColor
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .pointerInput(Unit) {
+                                                detectDragGestures { change, _ -> updateColor(change.position) }
+                                            }
+                                            .pointerInput(Unit) {
+                                                detectTapGestures { offset ->
+                                                    updateColor(offset)
+                                                    isEyedropperMode = false
+                                                    if (returnToTextDialog) {
+                                                        showTextDialog = true
+                                                        returnToTextDialog = false
+                                                    }
+                                                }
+                                            }
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopCenter)
+                                                .padding(top = 32.dp)
+                                                .background(Color.Black.copy(alpha = 0.8f), CircleShape)
+                                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                                        ) {
+                                            Text("🎯 Eyedropper: Tap or drag to extract color", color = Color.White, fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+
                                 LaunchedEffect(baseBitmap, overlayBitmap, drawingBitmap) {
                                     AppState.currentBaseBitmap = baseBitmap
                                     AppState.currentOverlayBitmap = overlayBitmap
@@ -638,7 +704,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Coordinate Translation, Layer Lock & Redo Logic)")
+    print("✅ 5-4 Generated UI (Perfect Matrix Locking & Image Eyedropper)")
 
 if __name__ == "__main__":
     generate()
