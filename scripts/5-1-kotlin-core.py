@@ -4,6 +4,8 @@ def generate():
     package_path = "app/src/main/java/com/watermarker"
     os.makedirs(package_path, exist_ok=True)
 
+    # FIX: Removed DefaultLifecycleObserver from the class signature.
+    # It is now an anonymous object inside ProcessLifecycleOwner to prevent 'super' conflicts.
     app_class_content = """package com.watermarker
 
 import android.app.Activity
@@ -14,7 +16,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.android.gms.ads.MobileAds
 
-class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, DefaultLifecycleObserver {
+class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks {
     private lateinit var appOpenAdManager: AppOpenAdManager
     private var currentActivity: Activity? = null
 
@@ -25,13 +27,13 @@ class WaterMarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         
         // Setup App Open Ad tracking
         appOpenAdManager = AppOpenAdManager(this)
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-    }
-
-    // Triggered when app comes to foreground
-    override fun onStart(owner: LifecycleOwner) {
-        super.onStart(owner)
-        currentActivity?.let { appOpenAdManager.showAdIfAvailable(it) }
+        
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                super.onStart(owner)
+                currentActivity?.let { appOpenAdManager.showAdIfAvailable(it) }
+            }
+        })
     }
 
     // Activity Lifecycle Tracking
@@ -129,7 +131,7 @@ class NativeEngine {
     with open(f"{package_path}/WaterMarkerApp.kt", "w") as f: f.write(app_class_content)
     with open(f"{package_path}/AppOpenAdManager.kt", "w") as f: f.write(ad_manager_content)
     with open(f"{package_path}/NativeEngine.kt", "w") as f: f.write(engine_content)
-    print("✅ 5-1 Generated Kotlin Core with Compliant AdMob App Open Implementation")
+    print("✅ 5-1 Generated Kotlin Core (Fixed Class Signature)")
 
 if __name__ == "__main__":
     generate()
