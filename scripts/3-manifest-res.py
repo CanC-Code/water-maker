@@ -4,9 +4,10 @@ def generate_manifest_and_res():
     manifest_path = "app/src/main/AndroidManifest.xml"
     res_dir = "app/src/main/res"
 
+    # FIX: Removed deprecated 'package' attribute and 'extractNativeLibs'
+    # Gradle 8.0+ now handles these automatically via build.gradle namespace
     manifest_content = """<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.watermarker">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
@@ -22,7 +23,6 @@ def generate_manifest_and_res():
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:extractNativeLibs="true"
         android:theme="@style/Theme.WaterMarker">
 
         <meta-data
@@ -51,7 +51,7 @@ def generate_manifest_and_res():
         f"{res_dir}/values/themes.xml": themes_content.strip(),
     }
 
-    print("📄 Generating Manifest with proper App properties and App ID...")
+    print("📄 Generating Manifest (Warnings Fixed)...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f: f.write(content)
