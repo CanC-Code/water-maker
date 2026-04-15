@@ -37,14 +37,14 @@ class AppOpenAdManager(private val context: Context) {
     }
 }"""
 
-    # JNI Signature accepts Android Bitmaps directly!
     engine_content = """package com.watermarker
 import android.graphics.Bitmap
 class NativeEngine {
     init { System.loadLibrary("watermarker") }
     external fun processWatermark(baseBitmap: Bitmap, overlayBitmap: Bitmap,
-                                  overlayX: Float, overlayY: Float, overlayScale: Float, overlayRotation: Float,
-                                  overlayAlpha: Float, previewWidth: Float, previewHeight: Float): Boolean
+                                  realOffsetX: Float, realOffsetY: Float, 
+                                  realOverScale: Float, overlayRotation: Float,
+                                  overlayAlpha: Float): Boolean
 }"""
 
     main_activity_content = r"""package com.watermarker
@@ -61,19 +61,23 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -136,6 +140,8 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = if (isDarkMode) darkColorScheme() else lightColorScheme()) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     var showMenu by remember { mutableStateOf(false) }
+                    var showInventory by remember { mutableStateOf(false) }
+                    
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
                     var showTextDialog by remember { mutableStateOf(false) }
@@ -157,6 +163,11 @@ class MainActivity : ComponentActivity() {
                     val context = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
                     
+                    // Inventory State
+                    val inventoryDir = remember { File(context.filesDir, "saved_overlays").apply { mkdirs() } }
+                    var savedOverlays by remember { mutableStateOf(inventoryDir.listFiles()?.toList() ?: emptyList()) }
+                    fun refreshInventory() { savedOverlays = inventoryDir.listFiles()?.toList() ?: emptyList() }
+                    
                     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri; baseRotation = 0f }
                     val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f }
                     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -173,7 +184,7 @@ class MainActivity : ComponentActivity() {
                     Scaffold(
                         topBar = {
                             TopAppBar(
-                                title = { Text("WaterMarker") },
+                                title = { Text("WaterMaker") },
                                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                 actions = {
                                     IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, "Menu") }
@@ -183,6 +194,7 @@ class MainActivity : ComponentActivity() {
                                         DropdownMenuItem(text = { Text("Load Base Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                         DropdownMenuItem(text = { Text("Load Overlay Image") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
                                         DropdownMenuItem(text = { Text("Add Text Overlay") }, onClick = { showMenu = false; showTextDialog = true })
+                                        DropdownMenuItem(text = { Text("My Overlay Inventory") }, onClick = { showMenu = false; showInventory = true; refreshInventory() })
                                         DropdownMenuItem(text = { Text("Import Font (.ttf)") }, onClick = { showMenu = false; fontPicker.launch("*/*") })
                                     }
                                 }
@@ -190,6 +202,36 @@ class MainActivity : ComponentActivity() {
                         }
                     ) { paddingValues ->
                         Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            
+                            // INVENTORY DIALOG
+                            if (showInventory) {
+                                AlertDialog(
+                                    onDismissRequest = { showInventory = false },
+                                    title = { Text("My Overlays") },
+                                    text = {
+                                        if (savedOverlays.isEmpty()) Text("No overlays saved yet.")
+                                        else LazyVerticalGrid(columns = GridCells.Fixed(2)) {
+                                            items(savedOverlays) { file ->
+                                                Box(modifier = Modifier.padding(4.dp).background(Color.LightGray).aspectRatio(1f)) {
+                                                    val bmp = remember { loadBitmapFromFile(file.absolutePath)?.asImageBitmap() }
+                                                    if (bmp != null) {
+                                                        Image(bitmap = bmp, contentDescription = "Saved Overlay", modifier = Modifier.fillMaxSize().clickable {
+                                                            overlayImageUri = Uri.fromFile(file)
+                                                            overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f
+                                                            showInventory = false
+                                                        })
+                                                    }
+                                                    IconButton(onClick = { file.delete(); refreshInventory() }, modifier = Modifier.align(Alignment.TopEnd)) {
+                                                        Icon(Icons.Default.Delete, "Delete", tint = Color.Red)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    confirmButton = { Button(onClick = { showInventory = false }) { Text("Close") } }
+                                )
+                            }
+
                             if (showTextDialog) {
                                 Card(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
                                     Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -217,13 +259,17 @@ class MainActivity : ComponentActivity() {
                                     previewWidth = coordinates.size.width.toFloat()
                                     previewHeight = coordinates.size.height.toFloat()
                                 }) {
-                                val baseBitmap = remember(baseImageUri) { loadBitmapFromUri(context, baseImageUri) }
-                                val overlayBitmap = remember(overlayImageUri) { loadBitmapFromUri(context, overlayImageUri) }
+                                
+                                // Load strictly oriented base bitmap into memory
+                                val baseBitmap = remember(baseImageUri, baseRotation) { loadAndRotateStrictBitmap(context, baseImageUri, baseRotation) }
+                                val overlayBitmap = remember(overlayImageUri) { loadStrictBitmap(context, overlayImageUri) }
+                                
                                 if (baseBitmap != null) {
-                                    Image(bitmap = baseBitmap, contentDescription = null, modifier = Modifier.fillMaxSize().rotate(baseRotation), contentScale = ContentScale.Fit)
+                                    Image(bitmap = baseBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                                 }
                                 if (overlayBitmap != null) {
-                                    Image(bitmap = overlayBitmap, contentDescription = null, modifier = Modifier
+                                    Image(bitmap = overlayBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
+                                        .fillMaxSize() // Fill parent ensures scale algorithms are perfectly aligned
                                         .graphicsLayer(translationX = overlayOffset.x, translationY = overlayOffset.y, scaleX = overlayScale, scaleY = overlayScale, rotationZ = overlayRotation, alpha = overlayAlpha)
                                         .pointerInput(Unit) {
                                             detectTransformGestures { _, pan, zoom, rotation ->
@@ -231,73 +277,80 @@ class MainActivity : ComponentActivity() {
                                                 overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
                                                 overlayRotation += rotation
                                             }
-                                        }
+                                        },
+                                        contentScale = ContentScale.Fit
                                     )
+                                }
+                                
+                                // Store Base & Overlay inside Box for process button context
+                                LaunchedEffect(baseBitmap, overlayBitmap) {
+                                    if (baseBitmap != null) AppState.currentBaseBitmap = baseBitmap
+                                    if (overlayBitmap != null) AppState.currentOverlayBitmap = overlayBitmap
                                 }
                             }
                             
-                            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-                                OutlinedButton(onClick = { baseRotation += 90f }, enabled = baseImageUri != null) { Text("Rotate Base 90°") }
+                            Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Button(onClick = {
+                                    if (overlayImageUri != null) {
+                                        val destFile = File(inventoryDir, "overlay_${System.currentTimeMillis()}.png")
+                                        context.contentResolver.openInputStream(overlayImageUri!!)?.use { input -> destFile.outputStream().use { input.copyTo(it) } }
+                                        Toast.makeText(context, "Saved to Inventory!", Toast.LENGTH_SHORT).show()
+                                        refreshInventory()
+                                    } else Toast.makeText(context, "Load an overlay first", Toast.LENGTH_SHORT).show()
+                                }) { Text("Save Overlay") }
+                                OutlinedButton(onClick = { baseRotation = (baseRotation + 90f) % 360f }, enabled = baseImageUri != null) { Text("Rotate Base 90°") }
                             }
                             
                             Spacer(modifier = Modifier.height(10.dp))
-                            
                             Text("Opacity Layer: ${(overlayAlpha * 100).toInt()}%", fontSize = 12.sp)
                             Slider(value = overlayAlpha, onValueChange = { overlayAlpha = it }, valueRange = 0f..1f)
-                            
                             Text("Export Quality: ${exportQuality.toInt()}%", fontSize = 12.sp)
                             Slider(value = exportQuality, onValueChange = { exportQuality = it }, valueRange = 10f..100f, enabled = outputFormat != "PNG")
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 listOf("JPEG", "PNG", "WEBP").forEach { format ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(selected = outputFormat == format, onClick = { outputFormat = format })
-                                        Text(format, fontSize = 14.sp)
-                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = outputFormat == format, onClick = { outputFormat = format }); Text(format, fontSize = 14.sp) }
                                 }
                             }
                             
                             Spacer(modifier = Modifier.height(10.dp))
                             Button(
                                 onClick = { 
-                                    if (baseImageUri != null && overlayImageUri != null) {
-                                        Toast.makeText(context, "Processing purely in Native memory...", Toast.LENGTH_SHORT).show()
+                                    val baseBmp = AppState.currentBaseBitmap
+                                    val overlayBmp = AppState.currentOverlayBitmap
+                                    if (baseBmp != null && overlayBmp != null) {
+                                        Toast.makeText(context, "Processing...", Toast.LENGTH_SHORT).show()
                                         coroutineScope.launch(Dispatchers.IO) {
                                             try {
-                                                // Load Bitmaps strictly into ARGB_8888 for JNI support
-                                                val mutableBase = prepareBaseImageBitmap(context, baseImageUri!!, baseRotation)
-                                                val overlayBmp = loadStrictBitmap(context, overlayImageUri!!)
+                                                // EXACT MATCH MATH: Calculate how much Compose scaled the images to fit the screen
+                                                val boxW = previewWidth
+                                                val boxH = previewHeight
+                                                val baseScaleUI = min(boxW / baseBmp.width, boxH / baseBmp.height)
+                                                val overScaleUI = min(boxW / overlayBmp.width, boxH / overlayBmp.height)
+
+                                                // Normalize UI gestures into real Source Pixels
+                                                val realOffsetX = overlayOffset.x / baseScaleUI
+                                                val realOffsetY = overlayOffset.y / baseScaleUI
+                                                val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
                                                 
-                                                if (mutableBase == null || overlayBmp == null) {
-                                                    withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Error loading image memory.", Toast.LENGTH_LONG).show() }
-                                                    return@launch
-                                                }
+                                                val mutableBase = baseBmp.copy(Bitmap.Config.ARGB_8888, true)
+                                                val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
                                                 
-                                                // Execute C++ directly on the RAM blocks!
                                                 val success = try {
-                                                    nativeEngine.processWatermark(mutableBase, overlayBmp, overlayOffset.x, overlayOffset.y, 
-                                                        overlayScale, overlayRotation, overlayAlpha, previewWidth, previewHeight)
-                                                } catch (t: Throwable) {
-                                                    false
-                                                }
+                                                    nativeEngine.processWatermark(mutableBase, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
+                                                } catch (t: Throwable) { false }
                                                 
                                                 withContext(Dispatchers.Main) {
                                                     if (success) {
-                                                        // Convert modified RAM directly to file
                                                         val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
                                                         FileOutputStream(outputPath).use { out ->
                                                             val cf = if (outputFormat == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                                                             mutableBase.compress(cf, exportQuality.toInt(), out)
                                                         }
-                                                        
                                                         val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
                                                         if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
-                                                    } else {
-                                                        Toast.makeText(context, "❌ Native Engine Error.", Toast.LENGTH_LONG).show()
-                                                    }
+                                                    } else Toast.makeText(context, "❌ Native Engine Error.", Toast.LENGTH_LONG).show()
                                                 }
-                                            } catch (e: Exception) {
-                                                withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Crash Prevented.", Toast.LENGTH_LONG).show() }
-                                            }
+                                            } catch (e: Exception) { withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Process Error", Toast.LENGTH_LONG).show() } }
                                         }
                                     }
                                 },
@@ -310,32 +363,33 @@ class MainActivity : ComponentActivity() {
         }
     }
     
-    // UI Preview Loader
-    private fun loadBitmapFromUri(context: Context, uri: Uri?): ImageBitmap? {
-        if (uri == null) return null
-        return try { BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri))?.asImageBitmap() } catch (e: Exception) { null }
+    // UI Global State helper
+    object AppState {
+        var currentBaseBitmap: Bitmap? = null
+        var currentOverlayBitmap: Bitmap? = null
     }
 
-    // Engine Loaders (Strict ARGB_8888 mapping)
-    private fun loadStrictBitmap(context: Context, uri: Uri): Bitmap? {
+    private fun loadBitmapFromFile(path: String): Bitmap? {
+        return try { BitmapFactory.decodeFile(path) } catch (e: Exception) { null }
+    }
+
+    private fun loadStrictBitmap(context: Context, uri: Uri?): Bitmap? {
+        if (uri == null) return null
         return try {
             val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = false }
             BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options)
         } catch (e: Exception) { null }
     }
 
-    private fun prepareBaseImageBitmap(context: Context, uri: Uri, rotation: Float): Bitmap? {
+    private fun loadAndRotateStrictBitmap(context: Context, uri: Uri?, rotation: Float): Bitmap? {
+        if (uri == null) return null
         return try {
             val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = true }
             val bitmap = BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options) ?: return null
-            
             if (rotation != 0f) {
                 val matrix = Matrix().apply { postRotate(rotation) }
                 Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            } else {
-                // Must explicitly copy to guarantee mutability for JNI
-                bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            }
+            } else bitmap.copy(Bitmap.Config.ARGB_8888, true)
         } catch (e: Exception) { null }
     }
 
@@ -347,11 +401,7 @@ class MainActivity : ComponentActivity() {
         }
         return try {
             val uri = context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            uri?.also { destUri ->
-                context.contentResolver.openOutputStream(destUri)?.use { out ->
-                    file.inputStream().use { input -> input.copyTo(out) }
-                }
-            }
+            uri?.also { destUri -> context.contentResolver.openOutputStream(destUri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } } }
         } catch (e: Exception) { null }
     }
 
@@ -376,7 +426,7 @@ class MainActivity : ComponentActivity() {
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Generating UI synced directly to Native Memory Engine...")
+    print("🎨 Generating UI with exact bounding math and Inventory features...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
