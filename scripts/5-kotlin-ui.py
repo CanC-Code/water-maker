@@ -37,11 +37,12 @@ class AppOpenAdManager(private val context: Context) {
     }
 }"""
 
-    # Updated JNI Signature to receive transformation logic!
+    # JNI Signature accepts Android Bitmaps directly!
     engine_content = """package com.watermarker
+import android.graphics.Bitmap
 class NativeEngine {
     init { System.loadLibrary("watermarker") }
-    external fun processWatermark(baseImagePath: String, overlayImagePath: String, outputPath: String, quality: Int,
+    external fun processWatermark(baseBitmap: Bitmap, overlayBitmap: Bitmap,
                                   overlayX: Float, overlayY: Float, overlayScale: Float, overlayRotation: Float,
                                   overlayAlpha: Float, previewWidth: Float, previewHeight: Float): Boolean
 }"""
@@ -148,7 +149,7 @@ class MainActivity : ComponentActivity() {
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
                     var overlayRotation by remember { mutableStateOf(0f) }
-                    var overlayAlpha by remember { mutableStateOf(1f) } // NEW: Restored Opacity State
+                    var overlayAlpha by remember { mutableStateOf(1f) } 
                     
                     var previewWidth by remember { mutableStateOf(1f) }
                     var previewHeight by remember { mutableStateOf(1f) }
@@ -178,7 +179,7 @@ class MainActivity : ComponentActivity() {
                                     IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, "Menu") }
                                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                         DropdownMenuItem(text = { Text("Toggle Theme") }, onClick = { showMenu = false; isDarkMode = !isDarkMode })
-                                        Divider()
+                                        HorizontalDivider()
                                         DropdownMenuItem(text = { Text("Load Base Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                         DropdownMenuItem(text = { Text("Load Overlay Image") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
                                         DropdownMenuItem(text = { Text("Add Text Overlay") }, onClick = { showMenu = false; showTextDialog = true })
@@ -211,7 +212,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            // Capture exact Box Dimensions to send to C++
                             Box(modifier = Modifier.fillMaxWidth().weight(1f).background(if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFE0E0E0)).clipToBounds()
                                 .onGloballyPositioned { coordinates ->
                                     previewWidth = coordinates.size.width.toFloat()
@@ -242,7 +242,6 @@ class MainActivity : ComponentActivity() {
                             
                             Spacer(modifier = Modifier.height(10.dp))
                             
-                            // NEW: Restored Opacity Slider
                             Text("Opacity Layer: ${(overlayAlpha * 100).toInt()}%", fontSize = 12.sp)
                             Slider(value = overlayAlpha, onValueChange = { overlayAlpha = it }, valueRange = 0f..1f)
                             
@@ -260,42 +259,44 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
                             Button(
                                 onClick = { 
-                                    val currentBase = baseImageUri
-                                    val currentOverlay = overlayImageUri
-                                    if (currentBase != null && currentOverlay != null) {
-                                        Toast.makeText(context, "Processing...", Toast.LENGTH_SHORT).show()
+                                    if (baseImageUri != null && overlayImageUri != null) {
+                                        Toast.makeText(context, "Processing purely in Native memory...", Toast.LENGTH_SHORT).show()
                                         coroutineScope.launch(Dispatchers.IO) {
                                             try {
-                                                val basePath = prepareBaseImage(context, currentBase, baseRotation, "temp_base.img")
-                                                val overlayPath = uriToFile(context, currentOverlay, "temp_overlay.img")
+                                                // Load Bitmaps strictly into ARGB_8888 for JNI support
+                                                val mutableBase = prepareBaseImageBitmap(context, baseImageUri!!, baseRotation)
+                                                val overlayBmp = loadStrictBitmap(context, overlayImageUri!!)
                                                 
-                                                if (basePath == null || overlayPath == null) {
-                                                    withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Error: Image too large.", Toast.LENGTH_LONG).show() }
+                                                if (mutableBase == null || overlayBmp == null) {
+                                                    withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Error loading image memory.", Toast.LENGTH_LONG).show() }
                                                     return@launch
                                                 }
                                                 
-                                                val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
-                                                
+                                                // Execute C++ directly on the RAM blocks!
                                                 val success = try {
-                                                    // Pass the UI coordinate data directly to the native engine!
-                                                    nativeEngine.processWatermark(basePath, overlayPath, outputPath, exportQuality.toInt(),
-                                                        overlayOffset.x, overlayOffset.y, overlayScale, overlayRotation, overlayAlpha, previewWidth, previewHeight)
+                                                    nativeEngine.processWatermark(mutableBase, overlayBmp, overlayOffset.x, overlayOffset.y, 
+                                                        overlayScale, overlayRotation, overlayAlpha, previewWidth, previewHeight)
                                                 } catch (t: Throwable) {
-                                                    t.printStackTrace()
                                                     false
                                                 }
                                                 
                                                 withContext(Dispatchers.Main) {
                                                     if (success) {
+                                                        // Convert modified RAM directly to file
+                                                        val outputPath = File(context.cacheDir, "final.${outputFormat.lowercase()}").absolutePath
+                                                        FileOutputStream(outputPath).use { out ->
+                                                            val cf = if (outputFormat == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                                                            mutableBase.compress(cf, exportQuality.toInt(), out)
+                                                        }
+                                                        
                                                         val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
                                                         if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
-                                                        else Toast.makeText(context, "❌ Processed, but failed to save to Gallery.", Toast.LENGTH_LONG).show()
                                                     } else {
                                                         Toast.makeText(context, "❌ Native Engine Error.", Toast.LENGTH_LONG).show()
                                                     }
                                                 }
                                             } catch (e: Exception) {
-                                                withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Internal App Crash Prevented.", Toast.LENGTH_LONG).show() }
+                                                withContext(Dispatchers.Main) { Toast.makeText(context, "❌ Crash Prevented.", Toast.LENGTH_LONG).show() }
                                             }
                                         }
                                     }
@@ -309,29 +310,32 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    // UI Preview Loader
     private fun loadBitmapFromUri(context: Context, uri: Uri?): ImageBitmap? {
         if (uri == null) return null
         return try { BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri))?.asImageBitmap() } catch (e: Exception) { null }
     }
 
-    private fun prepareBaseImage(context: Context, uri: Uri, rotation: Float, fileName: String): String? {
+    // Engine Loaders (Strict ARGB_8888 mapping)
+    private fun loadStrictBitmap(context: Context, uri: Uri): Bitmap? {
         return try {
-            val bitmap = BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri)) ?: return null
-            val finalBitmap = if (rotation != 0f) {
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postRotate(rotation) }, true)
-            } else bitmap
-            val tempFile = File(context.cacheDir, fileName)
-            FileOutputStream(tempFile).use { finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, it) }
-            tempFile.absolutePath
-        } catch (e: OutOfMemoryError) { null } catch (e: Exception) { null }
+            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = false }
+            BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options)
+        } catch (e: Exception) { null }
     }
 
-    private fun uriToFile(context: Context, uri: Uri, fileName: String): String? {
-        if (uri.scheme == "file") return uri.path
+    private fun prepareBaseImageBitmap(context: Context, uri: Uri, rotation: Float): Bitmap? {
         return try {
-            val tempFile = File(context.cacheDir, fileName)
-            FileOutputStream(tempFile).use { out -> context.contentResolver.openInputStream(uri)?.copyTo(out) }
-            tempFile.absolutePath
+            val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inMutable = true }
+            val bitmap = BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri), null, options) ?: return null
+            
+            if (rotation != 0f) {
+                val matrix = Matrix().apply { postRotate(rotation) }
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } else {
+                // Must explicitly copy to guarantee mutability for JNI
+                bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            }
         } catch (e: Exception) { null }
     }
 
@@ -372,12 +376,11 @@ class MainActivity : ComponentActivity() {
         f"{package_path}/MainActivity.kt": main_activity_content.strip()
     }
 
-    print("🎨 Generating UI with updated Signature and Layout measuring...")
+    print("🎨 Generating UI synced directly to Native Memory Engine...")
     for path, content in files.items():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Complete: Your UI is synced to Native C++.")
 
 if __name__ == "__main__":
     generate_ui()
