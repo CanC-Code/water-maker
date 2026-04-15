@@ -4,7 +4,6 @@ def generate_native_engine():
     cpp_dir = "app/src/main/cpp"
     os.makedirs(cpp_dir, exist_ok=True)
     
-    # 1. CMakeLists.txt (Links Android's native jnigraphics library)
     cmake_content = """cmake_minimum_required(VERSION 3.18.1)
 project("watermarker")
 
@@ -14,7 +13,6 @@ find_library(log-lib log)
 target_link_libraries(watermarker ${log-lib} jnigraphics)
 """
 
-    # 2. watermarker.cpp (Pure native pixel manipulation)
     cpp_content = """#include <jni.h>
 #include <android/log.h>
 #include <android/bitmap.h>
@@ -23,14 +21,13 @@ target_link_libraries(watermarker ${log-lib} jnigraphics)
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "NativeEngine", __VA_ARGS__)
 
-// Custom Bilinear Pixel Interpolator
 uint32_t getPixelBilinear(uint32_t* img, int width, int height, float x, float y) {
     int x1 = std::floor(x);
     int y1 = std::floor(y);
     int x2 = std::min(x1 + 1, width - 1);
     int y2 = std::min(y1 + 1, height - 1);
 
-    if (x1 < 0 || x1 >= width || y1 < 0 || y1 >= height) return 0; // Out of bounds = transparent
+    if (x1 < 0 || x1 >= width || y1 < 0 || y1 >= height) return 0; 
 
     float dx = x - x1;
     float dy = y - y1;
@@ -61,24 +58,20 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
                                                    jobject baseBitmap,
                                                    jobject overlayBitmap,
-                                                   jfloat overlayX, jfloat overlayY,
-                                                   jfloat overlayScale, jfloat overlayRotation,
-                                                   jfloat overlayAlpha,
-                                                   jfloat previewWidth, jfloat previewHeight) {
+                                                   jfloat realOffsetX, jfloat realOffsetY,
+                                                   jfloat realOverScale, jfloat overlayRotation,
+                                                   jfloat overlayAlpha) {
     
     AndroidBitmapInfo baseInfo, overInfo;
     void* basePixels;
     void* overPixels;
 
-    // Fetch bitmap properties from Android
     if (AndroidBitmap_getInfo(env, baseBitmap, &baseInfo) < 0 ||
         AndroidBitmap_getInfo(env, overlayBitmap, &overInfo) < 0) return JNI_FALSE;
 
-    // Ensure formats are ARGB_8888
     if (baseInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
         overInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
 
-    // Lock memory to manipulate pixels directly
     if (AndroidBitmap_lockPixels(env, baseBitmap, &basePixels) < 0) return JNI_FALSE;
     if (AndroidBitmap_lockPixels(env, overlayBitmap, &overPixels) < 0) {
         AndroidBitmap_unlockPixels(env, baseBitmap);
@@ -93,22 +86,18 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
     int overW = overInfo.width;
     int overH = overInfo.height;
 
-    // Translation Mathematics
-    float ratioX = (float)baseW / previewWidth;
-    float ratioY = (float)baseH / previewHeight;
-    float ratio = std::min(ratioX, ratioY);
-    float realScale = overlayScale * ratio;
-
     float rad = overlayRotation * M_PI / 180.0f;
     float cosR = std::cos(-rad);
     float sinR = std::sin(-rad);
 
-    float cx = (overW * realScale) / 2.0f;
-    float cy = (overH * realScale) / 2.0f;
-    float overlayCenterX = (baseW / 2.0f) + (overlayX * ratio);
-    float overlayCenterY = (baseH / 2.0f) + (overlayY * ratio);
+    float cx = (overW * realOverScale) / 2.0f;
+    float cy = (overH * realOverScale) / 2.0f;
+    
+    // UI gives us exact offsets relative to the center of the base image!
+    float overlayCenterX = (baseW / 2.0f) + realOffsetX;
+    float overlayCenterY = (baseH / 2.0f) + realOffsetY;
 
-    // Blending Loop
+    // Rendering Loop
     for (int y = 0; y < baseH; ++y) {
         for (int x = 0; x < baseW; ++x) {
             float px = x - overlayCenterX;
@@ -117,8 +106,8 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
             float srcX = px * cosR - py * sinR + cx;
             float srcY = px * sinR + py * cosR + cy;
 
-            float origSrcX = srcX / realScale;
-            float origSrcY = srcY / realScale;
+            float origSrcX = srcX / realOverScale;
+            float origSrcY = srcY / realOverScale;
 
             if (origSrcX >= 0 && origSrcX < overW - 1 && origSrcY >= 0 && origSrcY < overH - 1) {
                 uint32_t pxl = getPixelBilinear(overData, overW, overH, origSrcX, origSrcY);
@@ -145,7 +134,6 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
         }
     }
 
-    // Release memory safely
     AndroidBitmap_unlockPixels(env, baseBitmap);
     AndroidBitmap_unlockPixels(env, overlayBitmap);
 
@@ -159,7 +147,7 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
     for path, content in files.items():
         with open(path, "w") as f:
             f.write(content)
-    print("✅ Self-contained Native Engine generated successfully! No external downloads.")
+    print("✅ Fixed Native Engine generated with absolute alignment math!")
 
 if __name__ == "__main__":
     generate_native_engine()
