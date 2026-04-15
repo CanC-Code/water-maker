@@ -18,24 +18,27 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # We remove 'cache: gradle' for now because the 
-          # gradle files are generated dynamically later.
-          # You can add it back once the files are committed to the repo.
 
       - name: Set up Python 3.x
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
+      # NEW: Prepare ImageMagick and Fix Security Policies
+      - name: Install and Configure ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+          # GitHub runners have a policy that sometimes restricts 'label' or 'draw'
+          # This command ensures ImageMagick has full read/write permissions
+          sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/domain="coder" rights="none" pattern="LABEL"/domain="coder" rights="read|write" pattern="LABEL"/' /etc/ImageMagick-6/policy.xml
+
       - name: Run Orchestration Scripts
         run: |
-          # Ensure the scripts directory exists so the loop doesn't fail
           mkdir -p scripts
-          
-          # Find all python scripts in scripts/ folder, 
-          # sort them numerically, and execute them.
-          # If no scripts are found, it will simply skip.
           shopt -s nullglob
+          # Sort numerically and execute
           for script in scripts/[0-9]*.py; do
             echo "::group::Executing $script"
             python3 "$script"
@@ -48,6 +51,4 @@ jobs:
         with:
           name: water-marker-apk
           path: app/build/outputs/apk/debug/*.apk
-          # We change this to warn for the first attempt 
-          # in case a script fails early.
           if-no-files-found: warn
