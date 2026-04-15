@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
@@ -73,7 +74,6 @@ fun ColorWheel(onColorSelected: (Color) -> Unit) {
     ) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.minDimension / 2f
-        // FIX: Realigned HSV Color Array for perfect hue matching!
         val colors = listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
         drawCircle(brush = Brush.sweepGradient(colors, center = center), radius = radius, center = center)
         drawCircle(brush = Brush.radialGradient(listOf(Color.White, Color.Transparent), center = center, radius = radius), radius = radius, center = center)
@@ -110,20 +110,19 @@ class MainActivity : ComponentActivity() {
 
                     var baseImageUri by remember { mutableStateOf<Uri?>(null) }
                     
-                    // FIX: Segregated Layers prevents wipeouts!
                     var overlayImageUri by remember { mutableStateOf<Uri?>(null) }
                     var drawingImageUri by remember { mutableStateOf<Uri?>(null) }
 
-                    // Text Properties
                     var showTextDialog by remember { mutableStateOf(false) }
                     var overlayText by remember { mutableStateOf("") }
                     var overlayTextColor by remember { mutableStateOf(Color.Black) }
                     var overlayTextBend by remember { mutableStateOf(0f) }
                     var customTypeface by remember { mutableStateOf<Typeface?>(null) }
 
-                    // Drawing Properties
+                    // Drawing Properties with REDO Stack
                     var isDrawingMode by remember { mutableStateOf(false) }
                     var drawPaths by remember { mutableStateOf(listOf<DrawStroke>()) }
+                    var redoPaths by remember { mutableStateOf(listOf<DrawStroke>()) }
                     var currentDrawStroke by remember { mutableStateOf(listOf<Offset>()) }
                     var drawColor by remember { mutableStateOf(Color.Red) }
                     var drawStrokeWidth by remember { mutableStateOf(15f) }
@@ -131,11 +130,21 @@ class MainActivity : ComponentActivity() {
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
 
-                    var baseRotation by remember { mutableStateOf(0f) }
+                    // Dual-Layer Spatial Transformations
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
                     var overlayRotation by remember { mutableStateOf(0f) }
+                    
+                    var drawingOffset by remember { mutableStateOf(Offset.Zero) }
+                    var drawingScale by remember { mutableStateOf(1f) }
+                    var drawingRotation by remember { mutableStateOf(0f) }
+                    
+                    var baseRotation by remember { mutableStateOf(0f) }
                     var overlayAlpha by remember { mutableStateOf(1f) }
+
+                    // State Locks
+                    var activeLayer by remember { mutableStateOf("Text") } // "Text" or "Pen"
+                    var isLocked by remember { mutableStateOf(false) }
 
                     var previewWidth by remember { mutableStateOf(1f) }
                     var previewHeight by remember { mutableStateOf(1f) }
@@ -214,13 +223,7 @@ class MainActivity : ComponentActivity() {
                                     showTextDialog = false
                                     if (overlayText.isNotEmpty()) {
                                         val bmp = createTextBitmap(overlayText, overlayTextColor.toArgb(), customTypeface, overlayTextBend)
-                                        
-                                        overlayImageUri?.let { uri ->
-                                            if (uri.path?.contains("cache/text_") == true) {
-                                                File(uri.path!!).delete()
-                                            }
-                                        }
-
+                                        overlayImageUri?.let { uri -> if (uri.path?.contains("cache/text_") == true) File(uri.path!!).delete() }
                                         val tempFile = File(context.cacheDir, "text_${System.currentTimeMillis()}.png")
                                         FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                         overlayImageUri = Uri.fromFile(tempFile)
@@ -239,31 +242,49 @@ class MainActivity : ComponentActivity() {
                                 actions = {
                                     if (isDrawingMode) {
                                         if (drawPaths.isNotEmpty()) {
-                                            IconButton(onClick = { drawPaths = drawPaths.dropLast(1) }) { Icon(Icons.Default.ArrowBack, "Undo Stroke") }
+                                            IconButton(onClick = { 
+                                                redoPaths = listOf(drawPaths.last()) + redoPaths
+                                                drawPaths = drawPaths.dropLast(1) 
+                                            }) { Icon(Icons.Default.ArrowBack, "Undo") }
+                                        }
+                                        if (redoPaths.isNotEmpty()) {
+                                            IconButton(onClick = { 
+                                                drawPaths = drawPaths + redoPaths.first()
+                                                redoPaths = redoPaths.drop(1)
+                                            }) { Icon(Icons.Default.ArrowForward, "Redo") }
                                         }
                                         IconButton(onClick = { 
                                             drawPaths = emptyList() 
-                                            drawingImageUri = null // Clearing Canvas wipes the drawing layer
-                                        }) { Icon(Icons.Default.Clear, "Clear Canvas") }
+                                            redoPaths = emptyList()
+                                            drawingImageUri = null
+                                        }) { Icon(Icons.Default.Clear, "Clear") }
                                         
                                         IconButton(onClick = {
-                                            if (drawPaths.isNotEmpty()) {
-                                                val bmp = createDrawingBitmap(drawPaths, previewWidth.toInt(), previewHeight.toInt())
+                                            val baseBitmap = AppState.currentBaseBitmap
+                                            if (drawPaths.isNotEmpty() && baseBitmap != null) {
+                                                // Mathematically bound to base image size
+                                                val bmp = createDrawingBitmap(drawPaths, baseBitmap.width, baseBitmap.height)
                                                 val tempFile = File(context.cacheDir, "drawing_${System.currentTimeMillis()}.png")
                                                 FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                                 
-                                                // FIX: Rendered to drawing layer without modifying overlayImageUri
                                                 drawingImageUri = Uri.fromFile(tempFile)
+                                                // Reset transforms so new drawings anchor perfectly
+                                                drawingOffset = Offset.Zero
+                                                drawingScale = 1f
+                                                drawingRotation = 0f
                                             }
                                             isDrawingMode = false
-                                        }) { Icon(Icons.Default.Check, "Save Drawing", tint = Color(0xFF10B981)) }
+                                        }) { Icon(Icons.Default.Check, "Save", tint = Color(0xFF10B981)) }
                                     } else {
-                                        if (overlayImageUri != null) {
+                                        if (overlayImageUri != null || drawingImageUri != null) {
                                             IconButton(onClick = {
-                                                overlayImageUri = null
-                                                overlayText = ""
-                                                Toast.makeText(context, "Text Overlay Removed", Toast.LENGTH_SHORT).show()
-                                            }) { Icon(Icons.Default.Delete, "Remove Overlay", tint = Color.Red) }
+                                                if (activeLayer == "Text") {
+                                                    overlayImageUri = null; overlayText = ""
+                                                } else {
+                                                    drawingImageUri = null; drawPaths = emptyList(); redoPaths = emptyList()
+                                                }
+                                                Toast.makeText(context, "$activeLayer Layer Removed", Toast.LENGTH_SHORT).show()
+                                            }) { Icon(Icons.Default.Delete, "Remove Layer", tint = Color.Red) }
                                         }
 
                                         IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, "Menu") }
@@ -273,7 +294,11 @@ class MainActivity : ComponentActivity() {
                                             DropdownMenuItem(text = { Text("Load Main Image") }, onClick = { showMenu = false; basePicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Load Image Overlay") }, onClick = { showMenu = false; overlayPicker.launch("image/*") })
                                             DropdownMenuItem(text = { Text("Add Text Overlay") }, onClick = { showMenu = false; showTextDialog = true })
-                                            DropdownMenuItem(text = { Text("Draw Overlay") }, onClick = { showMenu = false; isDrawingMode = true })
+                                            DropdownMenuItem(
+                                                text = { Text("Draw Overlay") }, 
+                                                onClick = { showMenu = false; isDrawingMode = true },
+                                                enabled = baseImageUri != null // Prevent drawing without base context
+                                            )
                                             DropdownMenuItem(text = { Text("Saved Overlays") }, onClick = { showMenu = false; showInventory = true; refreshInventory() })
                                             DropdownMenuItem(text = { Text("Import Custom Font (.ttf)") }, onClick = { showMenu = false; fontPicker.launch("*/*") })
                                         }
@@ -320,6 +345,16 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
                                     } else {
+                                        // Dynamic Interaction Toggle Panel
+                                        if (overlayImageUri != null && drawingImageUri != null) {
+                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                                                FilterChip(selected = activeLayer == "Text", onClick = { activeLayer = "Text" }, label = { Text("Move Text") })
+                                                FilterChip(selected = activeLayer == "Pen", onClick = { activeLayer = "Pen" }, label = { Text("Move Pen") })
+                                                FilterChip(selected = isLocked, onClick = { isLocked = !isLocked }, label = { Text("Lock Layers") })
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                        }
+
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                             Button(onClick = {
                                                 if (overlayImageUri != null) {
@@ -361,10 +396,9 @@ class MainActivity : ComponentActivity() {
                                                             val boxW = previewWidth
                                                             val boxH = previewHeight
                                                             val baseScaleUI = min(boxW / baseBmp.width, boxH / baseBmp.height)
-
                                                             val mutableBase = baseBmp.copy(Bitmap.Config.ARGB_8888, true)
 
-                                                            // LAYER 1: Apply Text Overlay (Behind Drawing)
+                                                            // LAYER 1: Apply Text Overlay
                                                             if (overlayBmp != null) {
                                                                 val processOverlay = overlayBmp.copy(Bitmap.Config.ARGB_8888, false)
                                                                 val overScaleUI = min(boxW / overlayBmp.width, boxH / overlayBmp.height)
@@ -375,11 +409,16 @@ class MainActivity : ComponentActivity() {
                                                                 nativeEngine.processWatermark(mutableBase, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
                                                             }
 
-                                                            // LAYER 2: Apply Pen Drawing (Topmost)
+                                                            // LAYER 2: Apply Pen Drawing
                                                             if (drawingBmp != null) {
                                                                 val drawOverlay = drawingBmp.copy(Bitmap.Config.ARGB_8888, false)
-                                                                val realDrawScale = 1f / baseScaleUI
-                                                                nativeEngine.processWatermark(mutableBase, drawOverlay, 0f, 0f, realDrawScale, 0f, 1f)
+                                                                // Mathematically bound to base coords
+                                                                val drawScaleUI = min(boxW / drawingBmp.width, boxH / drawingBmp.height)
+                                                                val realDrawScale = (drawScaleUI * drawingScale) / baseScaleUI
+                                                                val realDrawOffsetX = drawingOffset.x / baseScaleUI
+                                                                val realDrawOffsetY = drawingOffset.y / baseScaleUI
+                                                                
+                                                                nativeEngine.processWatermark(mutableBase, drawOverlay, realDrawOffsetX, realDrawOffsetY, realDrawScale, drawingRotation, overlayAlpha)
                                                             }
 
                                                             withContext(Dispatchers.Main) {
@@ -444,34 +483,19 @@ class MainActivity : ComponentActivity() {
                                 val overlayBitmap = remember(overlayImageUri) { loadStrictBitmap(context, overlayImageUri) }
                                 val drawingBitmap = remember(drawingImageUri) { loadStrictBitmap(context, drawingImageUri) }
 
+                                val baseScaleUI = if (baseBitmap != null) min(previewWidth / baseBitmap.width, previewHeight / baseBitmap.height) else 1f
+                                val dx = if (baseBitmap != null) (previewWidth - baseBitmap.width * baseScaleUI) / 2f else 0f
+                                val dy = if (baseBitmap != null) (previewHeight - baseBitmap.height * baseScaleUI) / 2f else 0f
+
                                 // 1. Base Layer
                                 if (baseBitmap != null) {
                                     Image(bitmap = baseBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                                 }
                                 
-                                // 2. Text / Movable Overlay Layer
+                                // 2. Text Overlay Layer
                                 if (overlayBitmap != null) {
-                                    val interactionModifier = if (!isDrawingMode) {
-                                        Modifier
-                                            .pointerInput(Unit) {
-                                                detectTapGestures(
-                                                    onDoubleTap = {
-                                                        if (overlayText.isNotEmpty()) showTextDialog = true
-                                                    }
-                                                )
-                                            }
-                                            .pointerInput(Unit) {
-                                                detectTransformGestures { _, pan, zoom, rotation ->
-                                                    overlayOffset += pan
-                                                    overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
-                                                    overlayRotation += rotation
-                                                }
-                                            }
-                                    } else Modifier
-
                                     Image(bitmap = overlayBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
                                         .fillMaxSize()
-                                        .then(interactionModifier)
                                         .graphicsLayer(
                                             translationX = overlayOffset.x,
                                             translationY = overlayOffset.y,
@@ -486,18 +510,75 @@ class MainActivity : ComponentActivity() {
 
                                 // 3. Baked Drawing Layer
                                 if (drawingBitmap != null && !isDrawingMode) {
-                                    Image(bitmap = drawingBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                                    Image(bitmap = drawingBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer(
+                                            translationX = drawingOffset.x,
+                                            translationY = drawingOffset.y,
+                                            scaleX = drawingScale,
+                                            scaleY = drawingScale,
+                                            rotationZ = drawingRotation,
+                                            alpha = overlayAlpha
+                                        ),
+                                        contentScale = ContentScale.Fit
+                                    )
                                 }
 
-                                // 4. Live Drawing Canvas (Overrides Interaction)
-                                if (isDrawingMode) {
+                                // 4. Global Layer Lock Gesture Interceptor
+                                if (!isDrawingMode && (overlayBitmap != null || drawingBitmap != null)) {
+                                    Box(modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(activeLayer, isLocked) {
+                                            detectTransformGestures { _, pan, zoom, rotation ->
+                                                if (isLocked) {
+                                                    if (overlayBitmap != null) {
+                                                        overlayOffset += pan
+                                                        overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
+                                                        overlayRotation += rotation
+                                                    }
+                                                    if (drawingBitmap != null) {
+                                                        drawingOffset += pan
+                                                        drawingScale = (drawingScale * zoom).coerceIn(0.1f, 10f)
+                                                        drawingRotation += rotation
+                                                    }
+                                                } else {
+                                                    if (activeLayer == "Text" && overlayBitmap != null) {
+                                                        overlayOffset += pan
+                                                        overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
+                                                        overlayRotation += rotation
+                                                    } else if (activeLayer == "Pen" && drawingBitmap != null) {
+                                                        drawingOffset += pan
+                                                        drawingScale = (drawingScale * zoom).coerceIn(0.1f, 10f)
+                                                        drawingRotation += rotation
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .pointerInput(activeLayer) {
+                                            detectTapGestures(
+                                                onDoubleTap = {
+                                                    if (activeLayer == "Text" && overlayText.isNotEmpty()) showTextDialog = true
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+
+                                // 5. Live Drawing Interaction
+                                if (isDrawingMode && baseBitmap != null) {
                                     Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                                         detectDragGestures(
                                             onDragStart = { offset ->
-                                                currentDrawStroke = listOf(offset)
+                                                // Convert raw gestures instantly to base coords
+                                                val bx = (offset.x - dx) / baseScaleUI
+                                                val by = (offset.y - dy) / baseScaleUI
+                                                currentDrawStroke = listOf(Offset(bx, by))
+                                                redoPaths = emptyList() // Clear redo history on new stroke
                                             },
                                             onDrag = { change, _ ->
-                                                currentDrawStroke = currentDrawStroke + change.position
+                                                val bx = (change.position.x - dx) / baseScaleUI
+                                                val by = (change.position.y - dy) / baseScaleUI
+                                                currentDrawStroke = currentDrawStroke + Offset(bx, by)
                                             },
                                             onDragEnd = {
                                                 if (currentDrawStroke.size > 1) {
@@ -506,12 +587,18 @@ class MainActivity : ComponentActivity() {
                                                     for (i in 1 until currentDrawStroke.size) {
                                                         androidPath.lineTo(currentDrawStroke[i].x, currentDrawStroke[i].y)
                                                     }
-                                                    drawPaths = drawPaths + DrawStroke(androidPath, drawColor.toArgb(), drawStrokeWidth)
+                                                    // Stroke width dynamically adapts to image scale
+                                                    drawPaths = drawPaths + DrawStroke(androidPath, drawColor.toArgb(), drawStrokeWidth / baseScaleUI)
                                                 }
                                                 currentDrawStroke = emptyList()
                                             }
                                         )
                                     }) {
+                                        // Renders vectors in accurate base-coordinate space mapping
+                                        drawContext.canvas.save()
+                                        drawContext.canvas.translate(dx, dy)
+                                        drawContext.canvas.scale(baseScaleUI, baseScaleUI)
+                                        
                                         drawPaths.forEach { stroke ->
                                             drawPath(
                                                 path = stroke.path.asComposePath(),
@@ -528,9 +615,10 @@ class MainActivity : ComponentActivity() {
                                             drawPath(
                                                 path = composePath,
                                                 color = drawColor,
-                                                style = Stroke(width = drawStrokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                                style = Stroke(width = drawStrokeWidth / baseScaleUI, cap = StrokeCap.Round, join = StrokeJoin.Round)
                                             )
                                         }
+                                        drawContext.canvas.restore()
                                     }
                                 }
 
@@ -550,7 +638,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Hue Alignment & Layer Decoupling)")
+    print("✅ 5-4 Generated UI (Coordinate Translation, Layer Lock & Redo Logic)")
 
 if __name__ == "__main__":
     generate()
