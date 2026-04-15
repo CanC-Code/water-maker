@@ -18,6 +18,13 @@ object AppState {
     var currentOverlayBitmap: Bitmap? = null
 }
 
+// Data class bridging Compose vector paths to Android graphics
+data class DrawStroke(
+    val path: android.graphics.Path,
+    val color: Int,
+    val width: Float
+)
+
 fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
     val (height: Int, width: Int) = options.outHeight to options.outWidth
     var inSampleSize = 1
@@ -88,46 +95,73 @@ fun saveToGallery(context: Context, file: File, fileName: String): Uri? {
 }
 
 fun createTextBitmap(text: String, color: Int, typeface: Typeface?, bendAmount: Float): Bitmap {
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { 
-        this.color = color; 
-        this.textSize = 200f; 
-        this.typeface = typeface ?: Typeface.DEFAULT; 
-        this.textAlign = Paint.Align.CENTER 
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = color
+        this.textSize = 200f
+        this.typeface = typeface ?: Typeface.DEFAULT
+        this.textAlign = Paint.Align.CENTER
     }
-    
+
     val textWidth = paint.measureText(text)
-    // Make the box larger to accommodate curved text
-    val bmpSize = (textWidth + 400).toInt() 
+    val textHeight = paint.descent() - paint.ascent()
     
-    val bitmap = Bitmap.createBitmap(bmpSize, bmpSize, Bitmap.Config.ARGB_8888)
+    // Dynamically scale bounding box to prevent clipping at extreme curve gradients
+    val bmpWidth = (textWidth + abs(bendAmount) * 12 + 300).toInt()
+    val bmpHeight = (textHeight + abs(bendAmount) * 12 + 400).toInt()
+
+    val bitmap = Bitmap.createBitmap(bmpWidth, bmpHeight, Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bitmap)
 
-    val midX = bmpSize / 2f
-    val midY = bmpSize / 2f
+    val midX = bmpWidth / 2f
+    val midY = bmpHeight / 2f
 
     if (bendAmount == 0f) {
         val baseline = midY - (paint.descent() + paint.ascent()) / 2f
         canvas.drawText(text, midX, baseline, paint)
     } else {
-        // Create a curved path for the text
         val path = Path()
-        val startX = 100f
-        val endX = bmpSize - 100f
-        // bendAmount ranges from -100 to 100. We multiply to create an extreme curve point.
-        val controlY = midY + (bendAmount * 10f) 
+        val startX = (bmpWidth - textWidth) / 2f - 50f
+        val endX = startX + textWidth + 100f
         
+        // Multiplier dramatically increases the quadratic apex based on user input
+        val controlY = midY + (bendAmount * 18f)
+
         path.moveTo(startX, midY)
         path.quadTo(midX, controlY, endX, midY)
-        
-        // drawTextOnPath aligns to the path stroke, adjust vertical offset
-        canvas.drawTextOnPath(text, path, 0f, 0f, paint)
+
+        // Core fix: Calculate path topography to mathematically anchor text to the center
+        val pathMeasure = PathMeasure(path, false)
+        val pathLength = pathMeasure.length
+        val hOffset = pathLength / 2f
+
+        canvas.drawTextOnPath(text, path, hOffset, textHeight / 3f, paint)
+    }
+    return bitmap
+}
+
+// Rasterizes vector drawing inputs into a compliant Native Engine overlay
+fun createDrawingBitmap(strokes: List<DrawStroke>, width: Int, height: Int): Bitmap {
+    val safeWidth = if (width > 0) width else 1080
+    val safeHeight = if (height > 0) height else 1920
+    val bitmap = Bitmap.createBitmap(safeWidth, safeHeight, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+
+    for (stroke in strokes) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = stroke.color
+            this.style = Paint.Style.STROKE
+            this.strokeWidth = stroke.width
+            this.strokeCap = Paint.Cap.ROUND
+            this.strokeJoin = Paint.Join.ROUND
+        }
+        canvas.drawPath(stroke.path, paint)
     }
     return bitmap
 }
 """
     with open(f"{package_path}/OverlayUtils.kt", "w") as f:
         f.write(utils_content)
-    print("✅ 5-3 Generated OverlayUtils.kt (Text Curving & Bitmap Management)")
+    print("✅ 5-3 Generated OverlayUtils.kt (Text Curving, PathMeasure, & Matrix Drawing)")
 
 if __name__ == "__main__":
     generate()
