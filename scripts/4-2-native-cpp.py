@@ -12,7 +12,6 @@ def generate():
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "NativeEngine", __VA_ARGS__)
 
-// Custom Bilinear Pixel Interpolator
 uint32_t getPixelBilinear(uint32_t* img, int width, int height, float x, float y) {
     int x1 = std::floor(x);
     int y1 = std::floor(y);
@@ -69,7 +68,6 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
     int baseW = baseInfo.width; int baseH = baseInfo.height;
     int overW = overInfo.width; int overH = overInfo.height;
 
-    // Inverse Rotation Math
     float rad = overlayRotation * M_PI / 180.0f;
     float cosR = std::cos(-rad);
     float sinR = std::sin(-rad);
@@ -80,7 +78,6 @@ Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
     float overlayCenterX = (baseW / 2.0f) + realOffsetX;
     float overlayCenterY = (baseH / 2.0f) + realOffsetY;
 
-    // Rendering Loop with proper premultiplied Android Blending
     for (int y = 0; y < baseH; ++y) {
         for (int x = 0; x < baseW; ++x) {
             float px = x - overlayCenterX;
