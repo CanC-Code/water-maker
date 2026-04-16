@@ -22,7 +22,15 @@ include ':app'
     with open("settings.gradle", "w") as f:
         f.write(settings_content)
 
-    # 2. Generate Project-level build.gradle
+    # 2. Generate gradle.properties (CRITICAL FIX FOR ANDROIDX)
+    gradle_properties_content = """android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+"""
+    with open("gradle.properties", "w") as f:
+        f.write(gradle_properties_content)
+
+    # 3. Generate Project-level build.gradle
     project_build_content = """plugins {
     id 'com.android.application' version '8.2.1' apply false
     id 'org.jetbrains.kotlin.android' version '2.0.0' apply false
@@ -32,7 +40,7 @@ include ':app'
     with open("build.gradle", "w") as f:
         f.write(project_build_content)
 
-    # 3. Generate App-level build.gradle (Includes AdMob and Compose Plugin)
+    # 4. Generate App-level build.gradle (Includes AdMob and Compose Plugin)
     app_dir = "app"
     os.makedirs(app_dir, exist_ok=True)
 
@@ -105,7 +113,7 @@ dependencies {
 """
     with open(f"{app_dir}/build.gradle", "w") as f:
         f.write(app_build_content)
-    print("✅ 2 Generated settings.gradle & build.gradle (Kotlin 2.0 Compose Plugin & AdMob)")
+    print("✅ 2 Generated settings.gradle, gradle.properties & build.gradle (AndroidX Fixed)")
 
 if __name__ == "__main__":
     generate()
