@@ -22,7 +22,7 @@ include ':app'
     with open("settings.gradle", "w") as f:
         f.write(settings_content)
 
-    # 2. Generate gradle.properties (CRITICAL FIX FOR ANDROIDX)
+    # 2. Generate gradle.properties
     gradle_properties_content = """android.useAndroidX=true
 android.enableJetifier=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
@@ -40,7 +40,7 @@ org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
     with open("build.gradle", "w") as f:
         f.write(project_build_content)
 
-    # 4. Generate App-level build.gradle (Includes AdMob and Compose Plugin)
+    # 4. Generate App-level build.gradle
     app_dir = "app"
     os.makedirs(app_dir, exist_ok=True)
 
@@ -100,12 +100,15 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
     implementation 'androidx.activity:activity-compose:1.8.2'
     
-    // Compose BOM
+    // UI Libraries
     implementation platform('androidx.compose:compose-bom:2024.02.00')
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
+    
+    // CRITICAL: Material Components for Android (Required for XML Themes)
+    implementation 'com.google.android.material:material:1.11.0'
     
     // AdMob Integration
     implementation 'com.google.android.gms:play-services-ads:23.0.0'
@@ -113,7 +116,7 @@ dependencies {
 """
     with open(f"{app_dir}/build.gradle", "w") as f:
         f.write(app_build_content)
-    print("✅ 2 Generated settings.gradle, gradle.properties & build.gradle (AndroidX Fixed)")
+    print("✅ 2 Updated Gradle Config (Material Library Added)")
 
 if __name__ == "__main__":
     generate()
