@@ -1,80 +1,37 @@
 import os
 
 def generate():
-    app_dir = "app"
-    os.makedirs(app_dir, exist_ok=True)
+    # Ensure the directory exists
+    cmake_dir = "app/src/main/cpp"
+    os.makedirs(cmake_dir, exist_ok=True)
 
-    build_gradle_content = """plugins {
-    id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
-}
+    cmake_content = """cmake_minimum_required(VERSION 3.22.1)
 
-android {
-    namespace 'com.watermarker'
-    compileSdk 34
+project("watermarker")
 
-    defaultConfig {
-        applicationId "com.watermarker"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
-        externalNativeBuild {
-            cmake {
-                cppFlags "-std=c++17"
-            }
-        }
-    }
+add_library(
+        watermarker
+        SHARED
+        native-engine.cpp)
 
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-    }
-    
-    buildFeatures {
-        compose true
-    }
-    
-    composeOptions {
-        kotlinCompilerExtensionVersion '1.5.10'
-    }
+find_library(
+        log-lib
+        log)
 
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1+"
-        }
-    }
+# Add the jnigraphics library for bitmap manipulation
+find_library(
+        jnigraphics-lib
+        jnigraphics)
 
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = '1.8'
-    }
-}
-
-dependencies {
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
-    implementation 'androidx.lifecycle:lifecycle-process:2.7.0'
-    implementation 'androidx.activity:activity-compose:1.8.2'
-    implementation platform('androidx.compose:compose-bom:2024.02.00')
-    implementation 'androidx.compose.ui:ui'
-    implementation 'androidx.compose.ui:ui-graphics'
-    implementation 'androidx.compose.ui:ui-tooling-preview'
-    implementation 'androidx.compose.material3:material3'
-    
-    // AdMob Integration
-    implementation 'com.google.android.gms:play-services-ads:23.0.0'
-}
+target_link_libraries(
+        watermarker
+        ${log-lib}
+        ${jnigraphics-lib})
 """
-    with open(f"{app_dir}/build.gradle", "w") as f:
-        f.write(build_gradle_content)
-    print("✅ 4-1 Generated app/build.gradle (AdMob Dependencies Added)")
+    # Write the file to the exact path Gradle is looking for
+    with open(f"{cmake_dir}/CMakeLists.txt", "w") as f:
+        f.write(cmake_content)
+    print("✅ 4-1 Generated CMakeLists.txt (Native Build Configuration)")
 
 if __name__ == "__main__":
     generate()
