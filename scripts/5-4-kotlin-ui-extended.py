@@ -132,7 +132,6 @@ class MainActivity : ComponentActivity() {
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
 
-                    // Transformation States
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
                     var overlayRotation by remember { mutableStateOf(0f) }
@@ -144,7 +143,6 @@ class MainActivity : ComponentActivity() {
                     var baseRotation by remember { mutableStateOf(0f) }
                     var overlayAlpha by remember { mutableStateOf(1f) }
 
-                    // Lock Mechanism States
                     var activeLayer by remember { mutableStateOf("Text") }
                     var isLocked by remember { mutableStateOf(false) }
 
@@ -161,6 +159,7 @@ class MainActivity : ComponentActivity() {
                     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri; baseRotation = 0f }
                     val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f; overlayText = ""
+                        activeLayer = "Text" // Auto-select loaded layer
                     }
                     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         uri?.let {
@@ -185,7 +184,6 @@ class MainActivity : ComponentActivity() {
                                         })
                                     }
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    // Enter Eyedropper from Color Wheel
                                     Button(onClick = { 
                                         showColorPickerDialog = false
                                         if (activeColorContext == "text") {
@@ -241,6 +239,9 @@ class MainActivity : ComponentActivity() {
                                         val tempFile = File(context.cacheDir, "text_${System.currentTimeMillis()}.png")
                                         FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                         overlayImageUri = Uri.fromFile(tempFile)
+                                        
+                                        // QOL: Automatically select Text layer after creation
+                                        activeLayer = "Text"
                                     }
                                 }) { Text("Apply Text") }
                             },
@@ -284,18 +285,29 @@ class MainActivity : ComponentActivity() {
                                                 drawingOffset = Offset.Zero
                                                 drawingScale = 1f
                                                 drawingRotation = 0f
+                                                
+                                                // QOL: Automatically select Pen layer after finishing drawing
+                                                activeLayer = "Pen"
                                             }
                                             isDrawingMode = false
                                         }) { Icon(Icons.Default.Check, "Save", tint = Color(0xFF10B981)) }
                                     } else {
                                         if (overlayImageUri != null || drawingImageUri != null) {
                                             IconButton(onClick = {
-                                                if (activeLayer == "Text") {
+                                                // FIX: Context-aware dynamic layer deletion prevents state trapping
+                                                if (overlayImageUri != null && drawingImageUri != null) {
+                                                    if (activeLayer == "Text") {
+                                                        overlayImageUri = null; overlayText = ""; activeLayer = "Pen"
+                                                    } else {
+                                                        drawingImageUri = null; drawPaths = emptyList(); redoPaths = emptyList(); activeLayer = "Text"
+                                                    }
+                                                } else if (overlayImageUri != null) {
                                                     overlayImageUri = null; overlayText = ""
-                                                } else {
+                                                } else if (drawingImageUri != null) {
                                                     drawingImageUri = null; drawPaths = emptyList(); redoPaths = emptyList()
                                                 }
-                                                Toast.makeText(context, "$activeLayer Layer Removed", Toast.LENGTH_SHORT).show()
+                                                isLocked = false
+                                                Toast.makeText(context, "Layer Removed", Toast.LENGTH_SHORT).show()
                                             }) { Icon(Icons.Default.Delete, "Remove Layer", tint = Color.Red) }
                                         }
 
@@ -351,7 +363,6 @@ class MainActivity : ComponentActivity() {
                                                 }
                                                 .border(2.dp, if (!quickColors.contains(drawColor)) Color.DarkGray else Color.Transparent, CircleShape)
                                             )
-                                            // Eyedropper Button
                                             Button(
                                                 onClick = { activeColorContext = "pen"; isEyedropperMode = true },
                                                 modifier = Modifier.size(45.dp),
@@ -359,7 +370,6 @@ class MainActivity : ComponentActivity() {
                                             ) { Text("🎯", fontSize = 18.sp) }
                                         }
                                     } else {
-                                        // Highly visible Lock Mechanism UI
                                         if (overlayImageUri != null && drawingImageUri != null) {
                                             Row(
                                                 modifier = Modifier
@@ -543,14 +553,18 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // Global Layer Lock Gesture Interceptor with Correct Trigonometric Rotation
+                                // QOL FIX: Effective routing ignores background variables if only one layer exists
+                                val effectiveLayer = if (overlayBitmap != null && drawingBitmap == null) "Text"
+                                                     else if (drawingBitmap != null && overlayBitmap == null) "Pen"
+                                                     else activeLayer
+                                val effectiveLocked = isLocked && overlayBitmap != null && drawingBitmap != null
+
                                 if (!isDrawingMode && !isEyedropperMode && (overlayBitmap != null || drawingBitmap != null)) {
                                     Box(modifier = Modifier
                                         .fillMaxSize()
-                                        .pointerInput(activeLayer, isLocked) {
+                                        .pointerInput(effectiveLayer, effectiveLocked) {
                                             detectTransformGestures { _, pan, zoom, rotation ->
-                                                if (isLocked) {
-                                                    // Math fixes drift by explicitly shifting the offsets through scale & rotation
+                                                if (effectiveLocked) {
                                                     val rad = rotation * (PI / 180.0)
                                                     val cosR = cos(rad).toFloat()
                                                     val sinR = sin(rad).toFloat()
@@ -570,11 +584,11 @@ class MainActivity : ComponentActivity() {
                                                         drawingRotation += rotation
                                                     }
                                                 } else {
-                                                    if (activeLayer == "Text" && overlayBitmap != null) {
+                                                    if (effectiveLayer == "Text" && overlayBitmap != null) {
                                                         overlayOffset += pan
                                                         overlayScale = (overlayScale * zoom).coerceIn(0.1f, 10f)
                                                         overlayRotation += rotation
-                                                    } else if (activeLayer == "Pen" && drawingBitmap != null) {
+                                                    } else if (effectiveLayer == "Pen" && drawingBitmap != null) {
                                                         drawingOffset += pan
                                                         drawingScale = (drawingScale * zoom).coerceIn(0.1f, 10f)
                                                         drawingRotation += rotation
@@ -582,17 +596,16 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             }
                                         }
-                                        .pointerInput(activeLayer) {
+                                        .pointerInput(effectiveLayer) {
                                             detectTapGestures(
                                                 onDoubleTap = {
-                                                    if (activeLayer == "Text" && overlayText.isNotEmpty()) showTextDialog = true
+                                                    if (effectiveLayer == "Text" && overlayText.isNotEmpty()) showTextDialog = true
                                                 }
                                             )
                                         }
                                     )
                                 }
 
-                                // Interactive Vector Canvas
                                 if (isDrawingMode && !isEyedropperMode && baseBitmap != null) {
                                     Canvas(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                                         detectDragGestures(
@@ -647,7 +660,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                // Eyedropper Interaction Interceptor
                                 if (isEyedropperMode) {
                                     val updateColor = { offset: Offset ->
                                         if (baseBitmap != null) {
@@ -704,7 +716,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Perfect Matrix Locking & Image Eyedropper)")
+    print("✅ 5-4 Generated UI (Robust State Deletion & QOL Fallbacks)")
 
 if __name__ == "__main__":
     generate()
