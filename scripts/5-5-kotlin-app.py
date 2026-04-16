@@ -32,16 +32,19 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         // Initialize the Mobile Ads SDK
         MobileAds.initialize(this) {}
         
+        // Observe the app process lifecycle to trigger App Open Ads
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         appOpenAdManager = AppOpenAdManager()
         
-        // Pre-fetch an ad the moment the app boots
+        // Pre-fetch an ad on boot
         appOpenAdManager.loadAd()
     }
 
-    // Triggered whenever the app comes to the foreground
+    /**
+     * Triggered by DefaultLifecycleObserver when the app returns to the foreground.
+     * We removed 'super.onStart' to resolve the 'Multiple supertypes' compilation error.
+     */
     override fun onStart(owner: LifecycleOwner) {
-        super.onStart(owner)
         appOpenAdManager.showAdIfAvailable(currentActivity)
     }
 
@@ -53,6 +56,7 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         currentActivity = activity
     }
 
+    // Required overrides for ActivityLifecycleCallbacks (unused)
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
     override fun onActivityPaused(activity: Activity) {}
     override fun onActivityStopped(activity: Activity) {}
@@ -75,7 +79,7 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
             
             val request = AdRequest.Builder().build()
             
-            // Utilizing your specific Ad Unit ID
+            // Your Ad Unit ID: ca-app-pub-7732503595590477/4459993522
             AppOpenAd.load(
                 this@WatermarkerApp,
                 "ca-app-pub-7732503595590477/4459993522",
@@ -88,7 +92,6 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
                         loadTime = Date().time
                     }
                     override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                        // If 10 minutes haven't passed, AdMob will safely fail here
                         isLoadingAd = false
                     }
                 }
@@ -102,7 +105,6 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
         }
 
         private fun isAdAvailable(): Boolean {
-            // App Open ads expire after 4 hours, this ensures we don't show a stale ad
             return appOpenAd != null && wasLoadTimeLessThanNHoursAgo(4)
         }
 
@@ -116,7 +118,7 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
                 override fun onAdDismissedFullScreenContent() {
                     appOpenAd = null
                     isShowingAd = false
-                    loadAd() // Queue up the next ad
+                    loadAd()
                 }
                 override fun onAdFailedToShowFullScreenContent(adError: AdError) {
                     appOpenAd = null
@@ -136,7 +138,7 @@ class WatermarkerApp : Application(), Application.ActivityLifecycleCallbacks, De
 """
     with open(f"{package_path}/WatermarkerApp.kt", "w") as f:
         f.write(app_content)
-    print("✅ 5-5 Generated WatermarkerApp.kt (App Open Ad Configured)")
+    print("✅ 5-5 Generated WatermarkerApp.kt (Fixed Compilation & AdMob Ready)")
 
 if __name__ == "__main__":
     generate()
