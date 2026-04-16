@@ -64,6 +64,20 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.*
 
+// GLOBAL STATE SNAPSHOT FOR UNDO/REDO ENGINE
+data class GlobalSnapshot(
+    val overlayImageUri: Uri?,
+    val overlayText: String,
+    val drawingImageUri: Uri?,
+    val drawPaths: List<DrawStroke>,
+    val overlayOffset: Offset,
+    val overlayScale: Float,
+    val overlayRotation: Float,
+    val drawingOffset: Offset,
+    val drawingScale: Float,
+    val drawingRotation: Float
+)
+
 @Composable
 fun ColorWheel(onColorSelected: (Color) -> Unit) {
     var currentPosition by remember { mutableStateOf(Offset.Unspecified) }
@@ -108,7 +122,6 @@ class MainActivity : ComponentActivity() {
                     var showColorPickerDialog by remember { mutableStateOf(false) }
                     var activeColorContext by remember { mutableStateOf("text") } 
 
-                    // Eyedropper State
                     var isEyedropperMode by remember { mutableStateOf(false) }
                     var returnToTextDialog by remember { mutableStateOf(false) }
 
@@ -149,6 +162,63 @@ class MainActivity : ComponentActivity() {
                     var previewWidth by remember { mutableStateOf(1f) }
                     var previewHeight by remember { mutableStateOf(1f) }
 
+                    // GLOBAL HISTORY STACKS (MAX 10)
+                    var undoStack by remember { mutableStateOf(listOf<GlobalSnapshot>()) }
+                    var redoStack by remember { mutableStateOf(listOf<GlobalSnapshot>()) }
+
+                    val captureSnapshot = {
+                        GlobalSnapshot(
+                            overlayImageUri, overlayText, drawingImageUri, drawPaths,
+                            overlayOffset, overlayScale, overlayRotation,
+                            drawingOffset, drawingScale, drawingRotation
+                        )
+                    }
+
+                    val saveHistory = {
+                        undoStack = (undoStack + captureSnapshot()).takeLast(10)
+                        redoStack = emptyList()
+                    }
+
+                    val performUndo = {
+                        if (undoStack.isNotEmpty()) {
+                            val current = captureSnapshot()
+                            redoStack = (listOf(current) + redoStack).take(10)
+                            val prev = undoStack.last()
+                            undoStack = undoStack.dropLast(1)
+                            
+                            overlayImageUri = prev.overlayImageUri
+                            overlayText = prev.overlayText
+                            drawingImageUri = prev.drawingImageUri
+                            drawPaths = prev.drawPaths
+                            overlayOffset = prev.overlayOffset
+                            overlayScale = prev.overlayScale
+                            overlayRotation = prev.overlayRotation
+                            drawingOffset = prev.drawingOffset
+                            drawingScale = prev.drawingScale
+                            drawingRotation = prev.drawingRotation
+                        }
+                    }
+
+                    val performRedo = {
+                        if (redoStack.isNotEmpty()) {
+                            val current = captureSnapshot()
+                            undoStack = (undoStack + current).takeLast(10)
+                            val next = redoStack.first()
+                            redoStack = redoStack.drop(1)
+                            
+                            overlayImageUri = next.overlayImageUri
+                            overlayText = next.overlayText
+                            drawingImageUri = next.drawingImageUri
+                            drawPaths = next.drawPaths
+                            overlayOffset = next.overlayOffset
+                            overlayScale = next.overlayScale
+                            overlayRotation = next.overlayRotation
+                            drawingOffset = next.drawingOffset
+                            drawingScale = next.drawingScale
+                            drawingRotation = next.drawingRotation
+                        }
+                    }
+
                     val context = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
 
@@ -158,8 +228,11 @@ class MainActivity : ComponentActivity() {
 
                     val basePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> baseImageUri = uri; baseRotation = 0f }
                     val overlayPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-                        overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f; overlayText = ""
-                        activeLayer = "Text" // Auto-select loaded layer
+                        if (uri != null) {
+                            saveHistory()
+                            overlayImageUri = uri; overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f; overlayText = ""
+                            activeLayer = "Text"
+                        }
                     }
                     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         uri?.let {
@@ -234,13 +307,12 @@ class MainActivity : ComponentActivity() {
                                 Button(onClick = {
                                     showTextDialog = false
                                     if (overlayText.isNotEmpty()) {
+                                        saveHistory()
                                         val bmp = createTextBitmap(overlayText, overlayTextColor.toArgb(), customTypeface, overlayTextBend)
                                         overlayImageUri?.let { uri -> if (uri.path?.contains("cache/text_") == true) File(uri.path!!).delete() }
                                         val tempFile = File(context.cacheDir, "text_${System.currentTimeMillis()}.png")
                                         FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                         overlayImageUri = Uri.fromFile(tempFile)
-                                        
-                                        // QOL: Automatically select Text layer after creation
                                         activeLayer = "Text"
                                     }
                                 }) { Text("Apply Text") }
@@ -260,15 +332,16 @@ class MainActivity : ComponentActivity() {
                                             IconButton(onClick = { 
                                                 redoPaths = listOf(drawPaths.last()) + redoPaths
                                                 drawPaths = drawPaths.dropLast(1) 
-                                            }) { Icon(Icons.Default.ArrowBack, "Undo") }
+                                            }) { Icon(Icons.Default.ArrowBack, "Undo Stroke") }
                                         }
                                         if (redoPaths.isNotEmpty()) {
                                             IconButton(onClick = { 
                                                 drawPaths = drawPaths + redoPaths.first()
                                                 redoPaths = redoPaths.drop(1)
-                                            }) { Icon(Icons.Default.ArrowForward, "Redo") }
+                                            }) { Icon(Icons.Default.ArrowForward, "Redo Stroke") }
                                         }
                                         IconButton(onClick = { 
+                                            saveHistory()
                                             drawPaths = emptyList() 
                                             redoPaths = emptyList()
                                             drawingImageUri = null
@@ -277,6 +350,7 @@ class MainActivity : ComponentActivity() {
                                         IconButton(onClick = {
                                             val baseBitmap = AppState.currentBaseBitmap
                                             if (drawPaths.isNotEmpty() && baseBitmap != null) {
+                                                saveHistory()
                                                 val bmp = createDrawingBitmap(drawPaths, baseBitmap.width, baseBitmap.height)
                                                 val tempFile = File(context.cacheDir, "drawing_${System.currentTimeMillis()}.png")
                                                 FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
@@ -285,8 +359,6 @@ class MainActivity : ComponentActivity() {
                                                 drawingOffset = Offset.Zero
                                                 drawingScale = 1f
                                                 drawingRotation = 0f
-                                                
-                                                // QOL: Automatically select Pen layer after finishing drawing
                                                 activeLayer = "Pen"
                                             }
                                             isDrawingMode = false
@@ -294,7 +366,7 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         if (overlayImageUri != null || drawingImageUri != null) {
                                             IconButton(onClick = {
-                                                // FIX: Context-aware dynamic layer deletion prevents state trapping
+                                                saveHistory()
                                                 if (overlayImageUri != null && drawingImageUri != null) {
                                                     if (activeLayer == "Text") {
                                                         overlayImageUri = null; overlayText = ""; activeLayer = "Pen"
@@ -309,6 +381,16 @@ class MainActivity : ComponentActivity() {
                                                 isLocked = false
                                                 Toast.makeText(context, "Layer Removed", Toast.LENGTH_SHORT).show()
                                             }) { Icon(Icons.Default.Delete, "Remove Layer", tint = Color.Red) }
+                                        }
+
+                                        // GLOBAL UNDO ENGINE
+                                        IconButton(onClick = { performUndo() }, enabled = undoStack.isNotEmpty()) {
+                                            Icon(Icons.Default.ArrowBack, "Undo Layer Change", tint = if (undoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else Color.Gray.copy(alpha = 0.4f))
+                                        }
+                                        
+                                        // GLOBAL REDO ENGINE
+                                        IconButton(onClick = { performRedo() }, enabled = redoStack.isNotEmpty()) {
+                                            Icon(Icons.Default.ArrowForward, "Redo Layer Change", tint = if (redoStack.isNotEmpty()) MaterialTheme.colorScheme.onSurface else Color.Gray.copy(alpha = 0.4f))
                                         }
 
                                         IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.Menu, "Menu") }
@@ -485,6 +567,7 @@ class MainActivity : ComponentActivity() {
                                                     val bmp = remember { loadBitmapFromFile(file.absolutePath)?.asImageBitmap() }
                                                     if (bmp != null) {
                                                         Image(bitmap = bmp, contentDescription = "Asset", modifier = Modifier.fillMaxSize().clickable {
+                                                            saveHistory()
                                                             overlayImageUri = Uri.fromFile(file)
                                                             overlayOffset = Offset.Zero; overlayScale = 1f; overlayRotation = 0f
                                                             overlayText = ""
@@ -553,7 +636,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                // QOL FIX: Effective routing ignores background variables if only one layer exists
                                 val effectiveLayer = if (overlayBitmap != null && drawingBitmap == null) "Text"
                                                      else if (drawingBitmap != null && overlayBitmap == null) "Pen"
                                                      else activeLayer
@@ -716,7 +798,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Robust State Deletion & QOL Fallbacks)")
+    print("✅ 5-4 Generated UI (Permanent 10-Step Global Undo/Redo Engine)")
 
 if __name__ == "__main__":
     generate()
