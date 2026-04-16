@@ -1,133 +1,93 @@
 import os
 
 def generate():
+    # Ensure the directory matches where CMake is looking
     cpp_dir = "app/src/main/cpp"
     os.makedirs(cpp_dir, exist_ok=True)
 
-    cpp_content = """#include <jni.h>
-#include <android/log.h>
+    cpp_content = r"""#include <jni.h>
 #include <android/bitmap.h>
+#include <android/log.h>
 #include <cmath>
 #include <algorithm>
 
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "NativeEngine", __VA_ARGS__)
+#define LOG_TAG "NativeEngine"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-uint32_t getPixelBilinear(uint32_t* img, int width, int height, float x, float y) {
-    int x1 = std::floor(x);
-    int y1 = std::floor(y);
-    int x2 = std::min(x1 + 1, width - 1);
-    int y2 = std::min(y1 + 1, height - 1);
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_watermarker_NativeEngine_processWatermark(
+        JNIEnv* env, jobject thiz,
+        jobject base_bmp, jobject overlay_bmp,
+        jfloat offset_x, jfloat offset_y,
+        jfloat scale, jfloat rotation_deg, jfloat alpha) {
 
-    if (x1 < 0 || x1 >= width || y1 < 0 || y1 >= height) return 0;
+    AndroidBitmapInfo baseInfo;
+    AndroidBitmapInfo overInfo;
+    void* basePixels;
+    void* overPixels;
 
-    float dx = x - x1;
-    float dy = y - y1;
+    if (AndroidBitmap_getInfo(env, base_bmp, &baseInfo) < 0 ||
+        AndroidBitmap_getInfo(env, overlay_bmp, &overInfo) < 0) return;
 
-    uint32_t p11 = img[y1 * width + x1];
-    uint32_t p21 = img[y1 * width + x2];
-    uint32_t p12 = img[y2 * width + x1];
-    uint32_t p22 = img[y2 * width + x2];
+    if (AndroidBitmap_lockPixels(env, base_bmp, &basePixels) < 0 ||
+        AndroidBitmap_lockPixels(env, overlay_bmp, &overPixels) < 0) return;
 
-    auto blend = [&](int shift) {
-        float c11 = (p11 >> shift) & 0xFF;
-        float c21 = (p21 >> shift) & 0xFF;
-        float c12 = (p12 >> shift) & 0xFF;
-        float c22 = (p22 >> shift) & 0xFF;
-        return (uint32_t)((c11 * (1 - dx) * (1 - dy)) + (c21 * dx * (1 - dy)) +
-                          (c12 * (1 - dx) * dy) + (c22 * dx * dy));
-    };
+    uint32_t* basePtr = (uint32_t*)basePixels;
+    uint32_t* overPtr = (uint32_t*)overPixels;
 
-    uint32_t a = blend(24);
-    uint32_t r = blend(16);
-    uint32_t g = blend(8);
-    uint32_t b = blend(0);
+    float angle = rotation_deg * M_PI / 180.0f;
+    float cosA = cos(angle);
+    float sinA = sin(angle);
 
-    return (a << 24) | (r << 16) | (g << 8) | b;
-}
+    // Pivot around the center of the overlay
+    float centerX = overInfo.width / 2.0f;
+    float centerY = overInfo.height / 2.0f;
 
-extern "C" JNIEXPORT jboolean JNICALL
-Java_com_watermarker_NativeEngine_processWatermark(JNIEnv* env, jobject,
-                                                   jobject baseBitmap, jobject overlayBitmap,
-                                                   jfloat realOffsetX, jfloat realOffsetY,
-                                                   jfloat realOverScale, jfloat overlayRotation,
-                                                   jfloat overlayAlpha) {
+    for (int y = 0; y < baseInfo.height; ++y) {
+        for (int x = 0; x < baseInfo.width; ++x) {
+            // Translate point to overlay coordinate space
+            float tx = x - offset_x - baseInfo.width / 2.0f;
+            float ty = y - offset_y - baseInfo.height / 2.0f;
 
-    AndroidBitmapInfo baseInfo, overInfo;
-    void* basePixels; void* overPixels;
+            // Apply inverse scale and rotation to find source pixel in overlay
+            float rx = (tx * cosA + ty * sinA) / scale + centerX;
+            float ry = (-tx * sinA + ty * cosA) / scale + centerY;
 
-    if (AndroidBitmap_getInfo(env, baseBitmap, &baseInfo) < 0 || AndroidBitmap_getInfo(env, overlayBitmap, &overInfo) < 0) return JNI_FALSE;
-    if (baseInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || overInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return JNI_FALSE;
-    if (AndroidBitmap_lockPixels(env, baseBitmap, &basePixels) < 0) return JNI_FALSE;
-    if (AndroidBitmap_lockPixels(env, overlayBitmap, &overPixels) < 0) {
-        AndroidBitmap_unlockPixels(env, baseBitmap);
-        return JNI_FALSE;
-    }
-
-    uint32_t* baseData = (uint32_t*)basePixels;
-    uint32_t* overData = (uint32_t*)overPixels;
-    int baseW = baseInfo.width; int baseH = baseInfo.height;
-    int overW = overInfo.width; int overH = overInfo.height;
-
-    float rad = overlayRotation * M_PI / 180.0f;
-    float cosR = std::cos(-rad);
-    float sinR = std::sin(-rad);
-
-    float cx = (overW * realOverScale) / 2.0f;
-    float cy = (overH * realOverScale) / 2.0f;
-
-    float overlayCenterX = (baseW / 2.0f) + realOffsetX;
-    float overlayCenterY = (baseH / 2.0f) + realOffsetY;
-
-    for (int y = 0; y < baseH; ++y) {
-        for (int x = 0; x < baseW; ++x) {
-            float px = x - overlayCenterX;
-            float py = y - overlayCenterY;
-
-            float srcX = px * cosR - py * sinR + cx;
-            float srcY = px * sinR + py * cosR + cy;
-
-            float origSrcX = srcX / realOverScale;
-            float origSrcY = srcY / realOverScale;
-
-            if (origSrcX >= 0 && origSrcX < overW - 1 && origSrcY >= 0 && origSrcY < overH - 1) {
-                uint32_t pxl = getPixelBilinear(overData, overW, overH, origSrcX, origSrcY);
-
-                uint8_t sa = (pxl >> 24) & 0xFF;
-                if (sa > 0) {
+            if (rx >= 0 && rx < overInfo.width && ry >= 0 && ry < overInfo.height) {
+                uint32_t overPixel = overPtr[(int)ry * overInfo.width + (int)rx];
+                uint8_t aO = ((overPixel >> 24) & 0xFF) * alpha;
+                
+                if (aO > 0) {
+                    uint32_t basePixel = basePtr[y * baseInfo.width + x];
                     
-                    // FIX: Correctly align ARGB shifting masks. (Red is 16, Blue is 0)
-                    uint8_t sr = (pxl >> 16) & 0xFF;
-                    uint8_t sg = (pxl >> 8) & 0xFF;
-                    uint8_t sb = pxl & 0xFF;
+                    uint8_t rB = (basePixel >> 0) & 0xFF;
+                    uint8_t gB = (basePixel >> 8) & 0xFF;
+                    uint8_t bB = (basePixel >> 16) & 0xFF;
 
-                    uint32_t basePxl = baseData[y * baseW + x];
-                    uint8_t ba = (basePxl >> 24) & 0xFF;
-                    uint8_t br = (basePxl >> 16) & 0xFF;
-                    uint8_t bg = (basePxl >> 8) & 0xFF;
-                    uint8_t bb = basePxl & 0xFF;
+                    uint8_t rO = (overPixel >> 0) & 0xFF;
+                    uint8_t gO = (overPixel >> 8) & 0xFF;
+                    uint8_t bO = (overPixel >> 16) & 0xFF;
 
-                    float srcAlpha = sa / 255.0f;
-                    float combinedAlpha = srcAlpha * overlayAlpha;
+                    // Standard alpha blending formula
+                    float blend = aO / 255.0f;
+                    uint8_t rF = (uint8_t)(rO * blend + rB * (1.0f - blend));
+                    uint8_t gF = (uint8_t)(gO * blend + gB * (1.0f - blend));
+                    uint8_t bF = (uint8_t)(bO * blend + bB * (1.0f - blend));
 
-                    uint8_t nr = static_cast<uint8_t>(std::min(255.0f, (sr * overlayAlpha) + br * (1.0f - combinedAlpha)));
-                    uint8_t ng = static_cast<uint8_t>(std::min(255.0f, (sg * overlayAlpha) + bg * (1.0f - combinedAlpha)));
-                    uint8_t nb = static_cast<uint8_t>(std::min(255.0f, (sb * overlayAlpha) + bb * (1.0f - combinedAlpha)));
-                    uint8_t na = static_cast<uint8_t>(std::min(255.0f, (sa * overlayAlpha) + ba * (1.0f - combinedAlpha)));
-
-                    baseData[y * baseW + x] = (na << 24) | (nr << 16) | (ng << 8) | nb;
+                    basePtr[y * baseInfo.width + x] = (0xFF << 24) | (bF << 16) | (gF << 8) | rF;
                 }
             }
         }
     }
 
-    AndroidBitmap_unlockPixels(env, baseBitmap);
-    AndroidBitmap_unlockPixels(env, overlayBitmap);
-    return JNI_TRUE;
+    AndroidBitmap_unlockPixels(env, base_bmp);
+    AndroidBitmap_unlockPixels(env, overlay_bmp);
 }
 """
-    with open(f"{cpp_dir}/watermarker.cpp", "w") as f:
+    with open(f"{cpp_dir}/native-engine.cpp", "w") as f:
         f.write(cpp_content)
-    print("✅ 4-2 Generated Native C++ Engine (Color Rendering Fixed).")
+    print("✅ 4-2 Generated native-engine.cpp (Native Pixel Logic)")
 
 if __name__ == "__main__":
     generate()
