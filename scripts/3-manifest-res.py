@@ -1,27 +1,26 @@
 import os
 
-def generate_manifest_and_res():
-    manifest_path = "app/src/main/AndroidManifest.xml"
-    res_dir = "app/src/main/res"
+def generate():
+    manifest_dir = "app/src/main"
+    os.makedirs(manifest_dir, exist_ok=True)
 
     manifest_content = """<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.watermarker">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
-        android:name=".WaterMarkerApp"
-        android:largeHeap="true"
+        android:name=".WatermarkerApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
+        android:label="Water Marker"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WaterMarker">
+        android:theme="@style/Theme.Watermarker">
 
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
@@ -30,7 +29,7 @@ def generate_manifest_and_res():
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.WaterMarker">
+            android:theme="@style/Theme.Watermarker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -39,20 +38,9 @@ def generate_manifest_and_res():
     </application>
 </manifest>
 """
-
-    strings_content = """<resources>\n    <string name="app_name">Water Marker</string>\n</resources>"""
-    themes_content = """<resources>\n    <style name="Theme.WaterMarker" parent="android:Theme.Material.Light.NoActionBar">\n        <item name="android:statusBarColor">#38BDF8</item>\n    </style>\n</resources>"""
-
-    files = {
-        manifest_path: manifest_content.strip(),
-        f"{res_dir}/values/strings.xml": strings_content.strip(),
-        f"{res_dir}/values/themes.xml": themes_content.strip(),
-    }
-
-    print("📄 Generating Manifest (App Name Corrected)...")
-    for path, content in files.items():
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f: f.write(content)
+    with open(f"{manifest_dir}/AndroidManifest.xml", "w") as f:
+        f.write(manifest_content)
+    print("✅ 3 Generated AndroidManifest.xml (AdMob Configured)")
 
 if __name__ == "__main__":
-    generate_manifest_and_res()
+    generate()
