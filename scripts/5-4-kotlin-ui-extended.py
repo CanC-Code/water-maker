@@ -144,6 +144,7 @@ class MainActivity : ComponentActivity() {
 
                     var exportQuality by remember { mutableStateOf(100f) }
                     var outputFormat by remember { mutableStateOf("JPEG") }
+                    var outputFileName by remember { mutableStateOf("") }
 
                     var overlayOffset by remember { mutableStateOf(Offset.Zero) }
                     var overlayScale by remember { mutableStateOf(1f) }
@@ -499,6 +500,19 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         Spacer(modifier = Modifier.height(10.dp))
+
+                                        // QOL: Custom File Name Input
+                                        OutlinedTextField(
+                                            value = outputFileName,
+                                            onValueChange = { outputFileName = it },
+                                            label = { Text("Output File Name (Optional)") },
+                                            placeholder = { Text("e.g. MyWatermark") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
                                         Button(
                                             onClick = {
                                                 val baseBmp = AppState.currentBaseBitmap
@@ -506,7 +520,7 @@ class MainActivity : ComponentActivity() {
                                                 val drawingBmp = AppState.currentDrawingBitmap
                                                 
                                                 if (baseBmp != null) {
-                                                    Toast.makeText(context, "Processing Watermark...", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Processing Image...", Toast.LENGTH_SHORT).show()
                                                     coroutineScope.launch(Dispatchers.IO) {
                                                         try {
                                                             val boxW = previewWidth
@@ -538,7 +552,11 @@ class MainActivity : ComponentActivity() {
                                                                     val cf = if (outputFormat == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                                                                     mutableBase.compress(cf, exportQuality.toInt(), out)
                                                                 }
-                                                                val savedUri = saveToGallery(context, File(outputPath), "Watermark_${System.currentTimeMillis()}.${outputFormat.lowercase()}")
+                                                                
+                                                                // Apply Custom Name OR Fallback to Timestamp
+                                                                val finalName = if (outputFileName.isNotBlank()) outputFileName else "Watermark_${System.currentTimeMillis()}"
+                                                                
+                                                                val savedUri = saveToGallery(context, File(outputPath), "$finalName.${outputFormat.lowercase()}")
                                                                 if (savedUri != null) Toast.makeText(context, "✅ Saved to Gallery!", Toast.LENGTH_LONG).show()
                                                                 else Toast.makeText(context, "❌ Error saving image.", Toast.LENGTH_LONG).show()
                                                             }
@@ -547,7 +565,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             modifier = Modifier.fillMaxWidth().height(50.dp)
-                                        ) { Text("SAVE WATERMARK") }
+                                        ) { Text("SAVE IMAGE") } // QOL: Clearer Button Label
                                     }
                                 }
                             }
@@ -798,7 +816,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Permanent 10-Step Global Undo/Redo Engine)")
+    print("✅ 5-4 Generated UI (Custom Image Naming & Clear Output Buttons)")
 
 if __name__ == "__main__":
     generate()
