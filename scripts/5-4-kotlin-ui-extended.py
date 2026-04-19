@@ -355,15 +355,18 @@ class MainActivity : ComponentActivity() {
                                         }) { Icon(Icons.Default.Clear, "Clear") }
                                         
                                         IconButton(onClick = {
+                                            saveHistory()
                                             val baseBitmap = AppState.currentBaseBitmap
+                                            // FIX: If the user erased everything, drawingImageUri cleanly goes back to null
                                             if (drawPaths.isNotEmpty() && baseBitmap != null) {
-                                                saveHistory()
                                                 val bmp = createDrawingBitmap(drawPaths, baseBitmap.width, baseBitmap.height)
                                                 val tempFile = File(context.cacheDir, "drawing_${System.currentTimeMillis()}.png")
                                                 FileOutputStream(tempFile).use { out -> bmp.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                                 
                                                 drawingImageUri = Uri.fromFile(tempFile)
                                                 activeLayer = "Pen"
+                                            } else {
+                                                drawingImageUri = null
                                             }
                                             isDrawingMode = false
                                         }) { Icon(Icons.Default.Check, "Save", tint = Color(0xFF10B981)) }
@@ -406,6 +409,9 @@ class MainActivity : ComponentActivity() {
                                                 showMenu = false
                                                 saveHistory()
                                                 isDrawingMode = true 
+                                                drawingOffset = Offset.Zero
+                                                drawingScale = 1f
+                                                drawingRotation = 0f
                                             }, enabled = baseImageUri != null)
                                             DropdownMenuItem(text = { Text("Saved Overlays") }, onClick = { showMenu = false; showInventory = true; refreshInventory() })
                                             DropdownMenuItem(text = { Text("Import Custom Font (.ttf)") }, onClick = { showMenu = false; fontPicker.launch("*/*") })
@@ -478,14 +484,75 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                            
+                                            // FIX: The save button now seamlessly blends both Text and Pen into one inventory file
                                             Button(onClick = {
-                                                if (overlayImageUri != null) {
+                                                val bBmp = AppState.currentBaseBitmap
+                                                val oBmp = AppState.currentOverlayBitmap
+                                                val dBmp = AppState.currentDrawingBitmap
+
+                                                if (bBmp != null && (oBmp != null || dBmp != null)) {
+                                                    Toast.makeText(context, "Saving Combined Overlay...", Toast.LENGTH_SHORT).show()
+                                                    coroutineScope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            // We construct a transparent image specifically for your inventory 
+                                                            val combinedBmp = Bitmap.createBitmap(bBmp.width, bBmp.height, Bitmap.Config.ARGB_8888)
+                                                            
+                                                            val boxW = previewWidth
+                                                            val boxH = previewHeight
+                                                            val baseScaleUI = min(boxW / bBmp.width, boxH / bBmp.height)
+
+                                                            // Bake the Text if it exists
+                                                            if (oBmp != null) {
+                                                                val processOverlay = oBmp.copy(Bitmap.Config.ARGB_8888, false)
+                                                                val overScaleUI = min(boxW / oBmp.width, boxH / oBmp.height)
+                                                                val realOverScale = (overScaleUI * overlayScale) / baseScaleUI
+                                                                val realOffsetX = overlayOffset.x / baseScaleUI
+                                                                val realOffsetY = overlayOffset.y / baseScaleUI
+                                                                nativeEngine.processWatermark(combinedBmp, processOverlay, realOffsetX, realOffsetY, realOverScale, overlayRotation, overlayAlpha)
+                                                            }
+
+                                                            // Bake the Pen drawing if it exists
+                                                            if (dBmp != null) {
+                                                                val drawOverlay = dBmp.copy(Bitmap.Config.ARGB_8888, false)
+                                                                val drawScaleUI = min(boxW / dBmp.width, boxH / dBmp.height)
+                                                                val realDrawScale = (drawScaleUI * drawingScale) / baseScaleUI
+                                                                val realDrawOffsetX = drawingOffset.x / baseScaleUI
+                                                                val realDrawOffsetY = drawingOffset.y / baseScaleUI
+                                                                nativeEngine.processWatermark(combinedBmp, drawOverlay, realDrawOffsetX, realDrawOffsetY, realDrawScale, drawingRotation, overlayAlpha)
+                                                            }
+
+                                                            val destFile = File(inventoryDir, "overlay_${System.currentTimeMillis()}.png")
+                                                            FileOutputStream(destFile).use { out ->
+                                                                combinedBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                                            }
+
+                                                            withContext(Dispatchers.Main) {
+                                                                Toast.makeText(context, "Saved to Inventory!", Toast.LENGTH_SHORT).show()
+                                                                refreshInventory()
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            withContext(Dispatchers.Main) {
+                                                                Toast.makeText(context, "Error saving overlay.", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    }
+                                                } else if (oBmp != null) {
+                                                    // Fallback for if someone has text but somehow lacks a base image
                                                     val destFile = File(inventoryDir, "overlay_${System.currentTimeMillis()}.png")
                                                     context.contentResolver.openInputStream(overlayImageUri!!)?.use { input -> destFile.outputStream().use { input.copyTo(it) } }
                                                     Toast.makeText(context, "Saved to Inventory!", Toast.LENGTH_SHORT).show()
                                                     refreshInventory()
-                                                } else Toast.makeText(context, "No active overlay to save.", Toast.LENGTH_SHORT).show()
+                                                } else if (dBmp != null) {
+                                                    val destFile = File(inventoryDir, "overlay_${System.currentTimeMillis()}.png")
+                                                    context.contentResolver.openInputStream(drawingImageUri!!)?.use { input -> destFile.outputStream().use { input.copyTo(it) } }
+                                                    Toast.makeText(context, "Saved to Inventory!", Toast.LENGTH_SHORT).show()
+                                                    refreshInventory()
+                                                } else {
+                                                    Toast.makeText(context, "No active overlay to save.", Toast.LENGTH_SHORT).show()
+                                                }
                                             }) { Text("Save Overlay") }
+                                            
                                             OutlinedButton(onClick = { saveHistory(); baseRotation = (baseRotation + 90f) % 360f }, enabled = baseImageUri != null) { Text("Rotate Base") }
                                         }
 
@@ -707,6 +774,10 @@ class MainActivity : ComponentActivity() {
                                                     } else if (effectiveLayer == "Pen") {
                                                         saveHistory()
                                                         isDrawingMode = true
+                                                        // FIX: Resetting transforms directly snaps drawing back to correct position when double tapped
+                                                        drawingOffset = Offset.Zero
+                                                        drawingScale = 1f
+                                                        drawingRotation = 0f
                                                     }
                                                 }
                                             )
@@ -715,8 +786,6 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 if (isDrawingMode && !isEyedropperMode && baseBitmap != null) {
-                                    // CRITICAL FIX: Adding dx, dy, and baseScaleUI as keys ensures the touch area recalculates
-                                    // its offset if the screen layout boundaries change (like when opening drawing mode).
                                     Canvas(modifier = Modifier.fillMaxSize().pointerInput(dx, dy, baseScaleUI) {
                                         detectDragGestures(
                                             onDragStart = { offset ->
@@ -826,7 +895,7 @@ class MainActivity : ComponentActivity() {
 """
     with open(f"{package_path}/MainActivity.kt", "w") as f:
         f.write(main_activity_content)
-    print("✅ 5-4 Generated UI (Coordinate Shift Fixed & Pen Tool Edit Restored)")
+    print("✅ 5-4 Generated UI (Combined Save Overlay & Glitch Catcher Fixed)")
 
 if __name__ == "__main__":
     generate()
